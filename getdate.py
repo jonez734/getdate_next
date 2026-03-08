@@ -115,7 +115,10 @@ def _parse_iso8601(buf: str, now: datetime) -> Optional[datetime]:
         elif tz:
             sign = 1 if tz[0] == "+" else -1
             tz_h = int(tz[1:3])
-            tz_m = int(tz[3:5]) if len(tz) > 3 else 0
+            tz_str = tz[3:]
+            if tz_str.startswith(":"):
+                tz_str = tz_str[1:]
+            tz_m = int(tz_str) if tz_str else 0
             tzinfo = timezone(timedelta(hours=sign * tz_h, minutes=sign * tz_m))
         else:
             tzinfo = LOCAL_TZ
