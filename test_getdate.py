@@ -281,6 +281,93 @@ class TestGetDate(unittest.TestCase):
         self.assertIsNone(getdate("abcdef"))
         self.assertIsNone(getdate("32nd day of jamuary"))
 
+    def test_tomorrow_2pm(self):
+        """Test 'tomorrow 2pm' returns tomorrow at 2:00 PM."""
+        result = getdate("tomorrow 2pm")
+        self.assertIsNotNone(result)
+        expected = (datetime.now() + timedelta(days=1)).date()
+        self.assertEqual(result.date(), expected)
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 0)
+
+    def test_yesterday_9am(self):
+        """Test 'yesterday 9am' returns yesterday at 9:00 AM."""
+        result = getdate("yesterday 9am")
+        self.assertIsNotNone(result)
+        expected = (datetime.now() - timedelta(days=1)).date()
+        self.assertEqual(result.date(), expected)
+        self.assertEqual(result.hour, 9)
+        self.assertEqual(result.minute, 0)
+
+    def test_today_5pm(self):
+        """Test 'today 5pm' returns today at 5:00 PM."""
+        result = getdate("today 5pm")
+        self.assertIsNotNone(result)
+        now = datetime.now()
+        self.assertEqual(result.date(), now.date())
+        self.assertEqual(result.hour, 17)
+        self.assertEqual(result.minute, 0)
+
+    def test_friday_2pm(self):
+        """Test 'friday 2pm' returns next Friday at 2:00 PM."""
+        result = getdate("friday 2pm")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 4)  # Friday = 4
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 0)
+
+    def test_thursday_330pm(self):
+        """Test 'thursday 3:30pm' returns next Thursday at 3:30 PM."""
+        result = getdate("thursday 3:30pm")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 3)  # Thursday = 3
+        self.assertEqual(result.hour, 15)
+        self.assertEqual(result.minute, 30)
+
+    def test_next_thursday_2pm(self):
+        """Test 'next thursday 2pm'."""
+        result = getdate("next thursday 2pm")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 3)  # Thursday = 3
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 0)
+
+    def test_tomorrow_noon(self):
+        """Test 'tomorrow noon' returns tomorrow at 12:00 PM."""
+        result = getdate("tomorrow noon")
+        self.assertIsNotNone(result)
+        expected = (datetime.now() + timedelta(days=1)).date()
+        self.assertEqual(result.date(), expected)
+        self.assertEqual(result.hour, 12)
+        self.assertEqual(result.minute, 0)
+
+    def test_yesterday_midnight(self):
+        """Test 'yesterday midnight' returns yesterday at 12:00 AM."""
+        result = getdate("yesterday midnight")
+        self.assertIsNotNone(result)
+        expected = (datetime.now() - timedelta(days=1)).date()
+        self.assertEqual(result.date(), expected)
+        self.assertEqual(result.hour, 0)
+        self.assertEqual(result.minute, 0)
+
+    def test_next_friday_2pm(self):
+        """Test 'next friday 2pm'."""
+        result = getdate("next friday 2pm")
+        print(f"Result: {result}")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 4)  # Friday = 4
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 0)
+
+    def test_last_friday_2pm(self):
+        """Test 'last friday 2pm'."""
+        result = getdate("last friday 2pm")
+        print(f"Result: {result}")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 4)  # Friday = 4
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 0)
+
 
 class TestTimezonePreservation(unittest.TestCase):
     """Test that timezone offsets are preserved correctly."""
