@@ -112,6 +112,12 @@ def getdate(buf: str) -> Optional[datetime]:
 
     buf_lower = buf.lower()
 
+    from parser import getdate_with_lexer
+
+    result = getdate_with_lexer(buf_lower)
+    if result is not None:
+        return result
+
     now = _get_now()
 
     parsers = [
