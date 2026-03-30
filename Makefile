@@ -16,6 +16,6 @@ clean:
 	-rm *~
 
 version:
-#	@echo '__version__ = "'`git log -1 --format='%H' | cut -c 1-16`'"' > bbsengine6/_version.py
-	@echo '__version__ = "0.0.1.dev$(VERSION)"' > $(PROJECT)/_version.py
-	@echo '__datestamp__ = "'`date +%Y%m%d-%H%M`-`whoami`'"' >> $(PROJECT)/_version.py
+#	@echo '__version__ = "'`git log -1 --format='%H' | cut -c 1-16`'"' > src/$(PROJECT)/_version.py
+	@echo '__version__ = "0.0.1.dev$(VERSION)"' > src/$(PROJECT)/_version.py
+	@echo '__datestamp__ = "'`date +%Y%m%d-%H%M`-`whoami`'"' >> src/$(PROJECT)/_version.py
