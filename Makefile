@@ -1,6 +1,6 @@
 PROJECT = getdate_next
 OUTDIR = dist/
-VERSION = $(shell date +%Y%m%d%H%M)
+VERSION = 0.1.0.dev$(shell date +%Y%m%d%H%M)
 
 PYTHON = python3.12
 
