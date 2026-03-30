@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, date, timezone
 from typing import Optional
 from dataclasses import dataclass
 
-from lexer import Token, TokenType, tokenize
+from .lexer import Token, TokenType, tokenize
 
 
 class DateParseError(Exception):
