@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Natural language date expression parser"
 readme = "SPEC.md"
 requires-python = ">=3.9,<3.13"
+license = "GPL-2.0-or-later"
 authors = [
     {name = "jam", email = "jam@zoidtechnologies.com"}
 ]
