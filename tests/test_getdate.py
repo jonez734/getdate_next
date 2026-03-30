@@ -3,8 +3,8 @@ from datetime import datetime, timezone, timedelta
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from getdate import getdate, verify_valid_date_expression
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from getdate_next.getdate import getdate, verify_valid_date_expression
 
 
 class TestGetDate(unittest.TestCase):
