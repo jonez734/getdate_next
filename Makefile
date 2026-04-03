@@ -49,3 +49,6 @@ tag:
 		git tag -a v$(VERSION) -m "Release v$(VERSION)"; \
 		echo "Tag v$(VERSION) created locally."; \
 	fi
+
+backup:
+	rsync --recursive --verbose --exclude=.venv . /srv/backups/minotaur/$(PROJECT)/
