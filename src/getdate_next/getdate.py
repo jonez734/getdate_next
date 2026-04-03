@@ -7,7 +7,7 @@ Supports relative expressions, ordinal days, and various date formats.
 
 import re
 from datetime import datetime, timedelta, date
-from typing import Optional
+from typing import Optional, Union
 
 
 class DateParseError(Exception):
@@ -93,7 +93,7 @@ def _get_now() -> datetime:
     return datetime.now(tz=LOCAL_TZ)
 
 
-def getdate(buf: str) -> Optional[datetime]:
+def getdate(buf: str) -> Optional[Union[datetime, timedelta]]:
     """
     Parse a date expression and return a timezone-aware datetime.
 
@@ -129,6 +129,8 @@ def getdate(buf: str) -> Optional[datetime]:
         _parse_relative_day,
         _parse_ordinal_day,
         _parse_relative_unit,
+        _parse_days_until,
+        _parse_days_since,
     ]
 
     for parser in parsers:
@@ -460,7 +462,7 @@ def _parse_relative_day(buf: str, now: datetime) -> Optional[datetime]:
 def _parse_ordinal_day(buf: str, now: datetime) -> Optional[datetime]:
     """Parse ordinal day expressions like 2nd wednesday of march 2026."""
 
-    pattern = r"^(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+)?(\d{4})?"
+    pattern = r"^(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*)?(\d{4})?"
     match = re.match(pattern, buf)
     if match:
         ordinal_str, day_name, month_str, year_str = match.groups()
@@ -499,7 +501,7 @@ def _parse_ordinal_day(buf: str, now: datetime) -> Optional[datetime]:
 
         raise DateParseError(f"No {ordinal_str} {day_name} in {month}/{year}")
 
-    pattern = r"^final\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+)?(\d{4})?"
+    pattern = r"^final\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*)?(\d{4})?"
     match = re.match(pattern, buf)
     if match:
         day_name, month_str, year_str = match.groups()
@@ -606,6 +608,58 @@ def _parse_relative_unit(buf: str, now: datetime) -> Optional[datetime]:
                     now.second,
                     tzinfo=LOCAL_TZ,
                 )
+
+    return None
+
+
+def _parse_days_until(buf: str, now: datetime) -> Optional[timedelta]:
+    """Parse 'days until <date expression>' like 'days until 2nd wednesday april 2026'."""
+    pattern = r"^days?\s+until\s+(.+)$"
+    match = re.match(pattern, buf, re.IGNORECASE)
+    if match:
+        date_expr = match.group(1).strip()
+        from .parser import getdate_with_lexer
+
+        target_date = getdate_with_lexer(date_expr)
+        if target_date is None:
+            target_date = _parse_ordinal_day(date_expr, now)
+        if target_date is None:
+            target_date = _parse_relative_day(date_expr, now)
+        if target_date is None:
+            target_date = _parse_iso8601(date_expr, now)
+        if target_date is None:
+            target_date = _parse_us_datetime(date_expr, now)
+        if target_date is None:
+            target_date = _parse_absolute_numeric(date_expr, now)
+
+        if target_date is not None:
+            return target_date - now
+
+    return None
+
+
+def _parse_days_since(buf: str, now: datetime) -> Optional[timedelta]:
+    """Parse 'days since <date expression>' like 'days since 2nd wednesday april 2026'."""
+    pattern = r"^days?\s+since\s+(.+)$"
+    match = re.match(pattern, buf, re.IGNORECASE)
+    if match:
+        date_expr = match.group(1).strip()
+        from .parser import getdate_with_lexer
+
+        target_date = getdate_with_lexer(date_expr)
+        if target_date is None:
+            target_date = _parse_ordinal_day(date_expr, now)
+        if target_date is None:
+            target_date = _parse_relative_day(date_expr, now)
+        if target_date is None:
+            target_date = _parse_iso8601(date_expr, now)
+        if target_date is None:
+            target_date = _parse_us_datetime(date_expr, now)
+        if target_date is None:
+            target_date = _parse_absolute_numeric(date_expr, now)
+
+        if target_date is not None:
+            return now - target_date
 
     return None
 

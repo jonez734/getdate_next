@@ -30,6 +30,9 @@
 - `next thursday`, `last friday` (and other day names)
 - `1st monday of march`, `2nd wednesday of march 2026`
 - `final friday of march 2026`
+- `days until 2nd wednesday of march 2026` (returns timedelta)
+- `days until final friday of may 2026` (returns timedelta)
+- `days since 2nd wednesday of march 2026` (returns timedelta)
 
 ### Offset Expressions
 - `+2 days`, `-3 days`
@@ -44,6 +47,9 @@
 
 ## examples of input (tested):
 
+- days until 2nd wednesday april 2026 ✅
+- days until final friday of may 2026 ✅
+- days since 2nd wednesday march 2026 ✅
 - 2nd wednesday of march 2026 ✅
 - 2nd wednesday next month 2026 ❌ (not implemented)
 - 202603062145 ✅

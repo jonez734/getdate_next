@@ -368,6 +368,41 @@ class TestGetDate(unittest.TestCase):
         self.assertEqual(result.hour, 14)
         self.assertEqual(result.minute, 0)
 
+    def test_days_until_ordinal(self):
+        """Test 'days until 2nd wednesday april 2026' returns timedelta."""
+        result = getdate("days until 2nd wednesday april 2026")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, timedelta)
+        self.assertGreater(result.days, 0)
+
+    def test_days_until_final(self):
+        """Test 'days until final friday of may 2026' returns timedelta."""
+        result = getdate("days until final friday of may 2026")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, timedelta)
+        self.assertGreater(result.days, 0)
+
+    def test_days_until_simple(self):
+        """Test 'days until next friday' returns timedelta."""
+        result = getdate("days until next friday")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, timedelta)
+        self.assertGreater(result.days, 0)
+
+    def test_days_since_past(self):
+        """Test 'days since' with a past date returns timedelta."""
+        result = getdate("days since 2nd wednesday march 2026")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, timedelta)
+        self.assertGreater(result.days, 0)
+
+    def test_day_until_singular(self):
+        """Test 'day until' (singular) works."""
+        result = getdate("day until next friday")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, timedelta)
+        self.assertGreater(result.days, 0)
+
 
 class TestTimezonePreservation(unittest.TestCase):
     """Test that timezone offsets are preserved correctly."""
