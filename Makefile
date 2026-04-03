@@ -37,7 +37,7 @@ sdist:
 	$(PYTHON) -m setup sdist --dist-dir /srv/repo/$(PROJECT)/
 
 version:
-	@echo '__version__ = "$(VERSION)"' > src/getdate_next/_version.py
+	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/getdate_next/_version.py
 
 push: tag
 	git push -u github v$(VERSION)
