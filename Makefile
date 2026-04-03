@@ -1,4 +1,4 @@
-PROJECT = getdate-next
+PROJECT = getdate_next
 OUTDIR = /srv/repo/$(PROJECT)/
 VERSION = $(shell date +%Y%m%d%H%M)
 
