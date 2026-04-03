@@ -404,6 +404,80 @@ class TestGetDate(unittest.TestCase):
         self.assertGreater(result.days, 0)
 
 
+class TestDatelineCrossing(unittest.TestCase):
+    """Test parsing dates with timezones that cross the International Date Line.
+    
+    The International Date Line is at approximately +12:00 UTC.
+    Timezones east of this (like +14:00) are "ahead" of UTC by more than a day
+    compared to timezones west of it.
+    """
+
+    def test_plus14_timezone_parsing(self):
+        """Test +14:00 timezone (Kiritimati/Line Islands, east of dateline).
+        
+        +14:00 is the furthest timezone ahead of UTC, 2 hours ahead of +12:00.
+        """
+        result = getdate("2026-04-03T23:00:00+14:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.hour, 23)
+        self.assertEqual(result.minute, 0)
+        self.assertEqual(result.day, 3)
+        self.assertEqual(result.month, 4)
+        self.assertEqual(result.year, 2026)
+        offset = result.utcoffset()
+        self.assertEqual(offset, timedelta(hours=14))
+
+    def test_minus12_timezone_parsing(self):
+        """Test -12:00 timezone (Baker Island, west of dateline).
+        
+        -12:00 is the furthest timezone behind UTC, on the western side of the dateline.
+        """
+        result = getdate("2026-04-03T02:00:00-12:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.hour, 2)
+        self.assertEqual(result.minute, 0)
+        self.assertEqual(result.day, 3)
+        self.assertEqual(result.month, 4)
+        self.assertEqual(result.year, 2026)
+        offset = result.utcoffset()
+        self.assertEqual(offset, timedelta(hours=-12))
+
+    def test_plus12_timezone_at_datelien(self):
+        """Test +12:00 timezone (near International Date Line)."""
+        result = getdate("2026-04-03T22:00:00+12:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.hour, 22)
+        self.assertEqual(result.day, 3)
+        offset = result.utcoffset()
+        self.assertEqual(offset, timedelta(hours=12))
+
+    def test_end_of_month_plus14(self):
+        """Test +14:00 timezone at end of month."""
+        result = getdate("2026-04-30T22:00:00+14:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.month, 4)
+        self.assertEqual(result.day, 30)
+        self.assertEqual(result.hour, 22)
+
+    def test_year_boundary_plus14(self):
+        """Test +14:00 timezone at year boundary."""
+        result = getdate("2026-12-31T22:00:00+14:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 12)
+        self.assertEqual(result.day, 31)
+        self.assertEqual(result.hour, 22)
+
+    def test_year_boundary_minus12(self):
+        """Test -12:00 timezone at year boundary."""
+        result = getdate("2026-12-31T02:00:00-12:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 12)
+        self.assertEqual(result.day, 31)
+        self.assertEqual(result.hour, 2)
+
+
 class TestTimezonePreservation(unittest.TestCase):
     """Test that timezone offsets are preserved correctly."""
 
