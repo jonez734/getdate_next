@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,9 +10,12 @@ readme = "SPEC.md"
 requires-python = ">=3.9,<3.13"
 license = "GPL-2.0-or-later"
 authors = [
-    {name = "jam", email = "jam@zoidtechnologies.com"}
+    { name = "zoidtechnologies.com", email = "getdate-next@projects.zoidtechnologies.com" },
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -21,8 +24,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["getdate*"]
+include = ["getdate_next*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "getdate_next._version.__version__" }
