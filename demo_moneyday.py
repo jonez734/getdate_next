@@ -135,11 +135,11 @@ def main() -> int:
                 io.echo(f"{color} {dt} {diff}{suffix} days till next YESTERDAY!")
             elif 0 < daystillnext < 7:
                 weeks_suffix = (
-                    " (4 weeks)"
-                    if daystillnext == 28
-                    else (" (5 weeks)" if daystillnext == 35 else "")
+                    " (4 weeks)" if diff == 28 else (" (5 weeks)" if diff == 35 else "")
                 )
-                io.echo(f"{color} {dt} {daystillnext} days{weeks_suffix}!")
+                io.echo(
+                    f"{color} {dt} {daystillnext} days left of {diff}{weeks_suffix}!"
+                )
             else:
                 io.echo(f"{color} {dt} {diff}{suffix} days till next")
         elif dt > moneyday:
