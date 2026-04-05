@@ -77,6 +77,36 @@ python src/getdate_next/getdate.py
 python src/getdate_next/getdate.py "next week"
 ```
 
+## Demo Scripts
+
+### demo_moneyday.py
+
+A demo for finding ordinal weekdays (e.g., 2nd Tuesday) across months and identifying which one is today/tomorrow/yesterday or upcoming.
+
+```bash
+python -m demo_moneyday
+# Or run directly
+python demo_moneyday.py
+```
+
+The demo prompts for:
+- Year
+- Month (1-12)
+- Day (0=Sun, 1=Mon, etc.)
+- Which occurrence (1-4)
+- Delta (months to scan)
+
+Example output:
+```
+2026-01-14 28 days till next
+2026-02-11 28 days till next
+2026-03-11 28 days till next
+2026-04-08 3 days left of 28, 35 (5 weeks) days till next!
+2026-05-13 in 38 days
+```
+
+Shows days remaining until the next occurrence and indicates when the gap between months is 35 days (5 weeks).
+
 ## Development
 
 ```bash
