@@ -133,9 +133,10 @@ def main() -> int:
             elif dt == yesterday:
                 io.echo(f"{color} {dt} {diff}{suffix} days till next YESTERDAY!")
             elif 0 < daystillnext < 7:
+                prev_diff = (dt - dates[i - 1]).days if i > 0 else diff
                 weeks_suffix = " (5 weeks)" if diff == 35 else ""
                 io.echo(
-                    f"{color} {dt} {daystillnext} days left of {diff}{weeks_suffix}!"
+                    f"{color} {dt} {daystillnext} days left of {prev_diff}, {diff}{weeks_suffix} days till next!"
                 )
             else:
                 io.echo(f"{color} {dt} {diff}{suffix} days till next")
