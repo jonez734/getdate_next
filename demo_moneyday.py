@@ -117,9 +117,8 @@ def main() -> int:
             diff = 0
             color = "{green}"
 
-        if diff in (28, 35):
-            weeks = "(5 weeks)" if diff == 35 else "(4 weeks)"
-            suffix = f" {weeks}"
+        if diff == 35:
+            suffix = " (5 weeks)"
         else:
             suffix = ""
 
@@ -134,9 +133,7 @@ def main() -> int:
             elif dt == yesterday:
                 io.echo(f"{color} {dt} {diff}{suffix} days till next YESTERDAY!")
             elif 0 < daystillnext < 7:
-                weeks_suffix = (
-                    " (4 weeks)" if diff == 28 else (" (5 weeks)" if diff == 35 else "")
-                )
+                weeks_suffix = " (5 weeks)" if diff == 35 else ""
                 io.echo(
                     f"{color} {dt} {daystillnext} days left of {diff}{weeks_suffix}!"
                 )
