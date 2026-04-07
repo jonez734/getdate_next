@@ -2,7 +2,41 @@
 
 ## Status
 
-**IMPLEMENTED** - Core functionality complete in `getdate.py`
+**IMPLEMENTED** - Core functionality complete in `getdate.py` and PHP version in `php/`
+
+## PHP Implementation
+
+A full PHP port is available in the `php/` directory with feature parity to the Python version.
+
+### PHP Usage
+
+```php
+use GetdateNext\Getdate;
+
+// Parse a date expression - returns DateTimeImmutable
+$result = Getdate::getdate("next friday");
+echo $result->format('Y-m-d H:i:s');  // 2026-04-10 14:00:00
+
+// Returns DateInterval for "days until/since" expressions
+$result = Getdate::getdate("days until 2nd wednesday april 2026");
+echo $result->format('%a days');  // 4 days
+
+// Unix timestamp variant
+$timestamp = Getdate::getdateTimestamp("next friday");
+
+// Verify a date expression
+if (Getdate::verifyValidDateExpression("tomorrow")) {
+    echo "Valid!";
+}
+```
+
+### PHP Running Tests
+
+```bash
+cd php
+composer install
+./vendor/bin/phpunit tests/
+```
 
 ## details
 - accept singular or plural for components like "day", "week", "month", etc
