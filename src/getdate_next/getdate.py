@@ -93,6 +93,12 @@ def _get_now() -> datetime:
     return datetime.now(tz=LOCAL_TZ)
 
 
+# =============================================================================
+# DEPRECATED - These regex-based parsers are for reference only.
+# All parsing now goes through lexer/parser in parser.py
+# =============================================================================
+
+
 def getdate(buf: str) -> Optional[Union[datetime, timedelta]]:
     """
     Parse a date expression and return a timezone-aware datetime.
@@ -101,7 +107,7 @@ def getdate(buf: str) -> Optional[Union[datetime, timedelta]]:
         buf: Date expression string
 
     Returns:
-        timezone-aware datetime object, or None if parsing fails
+        timezone-aware datetime object, timedelta for "days until/since", or None if parsing fails
     """
     if not buf or not isinstance(buf, str):
         return None
@@ -112,36 +118,28 @@ def getdate(buf: str) -> Optional[Union[datetime, timedelta]]:
 
     buf_lower = buf.lower()
 
+    if buf_lower.startswith("days until ") or buf_lower.startswith("day until "):
+        date_expr = buf_lower[buf_lower.find(" ") + 1:]
+        if date_expr.startswith("until "):
+            date_expr = date_expr[6:]
+        target = getdate(date_expr)
+        if target:
+            return target - datetime.now(tz=LOCAL_TZ)
+        return None
+
+    if buf_lower.startswith("days since ") or buf_lower.startswith("day since "):
+        date_expr = buf_lower[buf_lower.find(" ") + 1:]
+        if date_expr.startswith("since "):
+            date_expr = date_expr[6:]
+        target = getdate(date_expr)
+        if target:
+            return datetime.now(tz=LOCAL_TZ) - target
+        return None
+
     from .parser import getdate_with_lexer
 
     result = getdate_with_lexer(buf_lower)
-    if result is not None:
-        return result
-
-    now = _get_now()
-
-    parsers = [
-        _parse_absolute_numeric,
-        _parse_iso8601,
-        _parse_us_datetime,
-        _parse_relative_offset,
-        _parse_relative_with_time,
-        _parse_relative_day,
-        _parse_ordinal_day,
-        _parse_relative_unit,
-        _parse_days_until,
-        _parse_days_since,
-    ]
-
-    for parser in parsers:
-        try:
-            result = parser(buf_lower, now)
-            if result is not None:
-                return result
-        except DateParseError:
-            continue
-
-    return None
+    return result
 
 
 def _parse_absolute_numeric(buf: str, now: datetime) -> Optional[datetime]:

@@ -22,6 +22,10 @@ class TokenType(Enum):
     UNIT = auto()
     DATE_SEPARATOR = auto()
     TIME_SEPARATOR = auto()
+    TIMEZONE = auto()
+    COMMA = auto()
+    UNIX = auto()
+    AT = auto()
     EOF = auto()
 
 
@@ -33,7 +37,7 @@ class Token:
 
 
 MODIFIERS = {"next", "last", "previous"}
-OFFSETS = {"ago", "from", "now"}
+OFFSETS = {"ago", "from", "now", "until", "since"}
 UNITS = {
     "day",
     "days",
@@ -94,7 +98,7 @@ MONTHS = {
     "dec",
 }
 
-TIME_WORDS = {"noon", "midday", "midnight", "night", "morning", "evening", "am", "pm"}
+TIME_WORDS = {"noon", "midday", "midnight", "night", "morning", "evening", "am", "pm", "a", "p", "of"}
 
 ORDINALS = {
     "first",
@@ -109,7 +113,23 @@ ORDINALS = {
     "tenth",
     "eleventh",
     "twelfth",
+    "1st",
+    "2nd",
+    "3rd",
+    "4th",
+    "5th",
+    "6th",
+    "7th",
+    "8th",
+    "9th",
+    "10th",
+    "11th",
+    "12th",
 }
+
+from .timezone_data import TIMEZONE_ABBREV_OFFSET
+
+TIMEZONES = set(TIMEZONE_ABBREV_OFFSET.keys())
 
 
 class TokenizerError(Exception):
@@ -123,6 +143,7 @@ class Tokenizer:
         self.buf = buf.strip().lower()
         self.pos = 0
         self.tokens: list[Token] = []
+        self.prev_token_type: Optional[TokenType] = None
 
     def tokenize(self) -> list[Token]:
         """Tokenize the input string."""
@@ -134,6 +155,7 @@ class Tokenizer:
             token = self._next_token()
             if token:
                 self.tokens.append(token)
+                self.prev_token_type = token.type
 
         self.tokens.append(Token(TokenType.EOF, "", self.pos))
         return self.tokens
@@ -153,9 +175,16 @@ class Tokenizer:
             return self._tokenize_separator()
         if char in ":":
             return self._tokenize_time_separator()
+        if char == ",":
+            return self._tokenize_comma()
 
         self.pos += 1
         return None
+
+    def _tokenize_comma(self) -> Token:
+        char = self.buf[self.pos]
+        self.pos += 1
+        return Token(TokenType.COMMA, char, self.pos - 1)
 
     def _tokenize_number(self) -> Token:
         start = self.pos
@@ -181,6 +210,8 @@ class Tokenizer:
                 or self.buf[self.pos :].startswith("am")
                 or self.buf[self.pos :].startswith("pm")
             ):
+                if len(value) >= 3 and len(value) <= 4 and value.isdigit():
+                    return Token(TokenType.NUMBER, value, start)
                 ampm = ""
                 while self.pos < len(self.buf) and self.buf[self.pos].isalpha():
                     ampm += self.buf[self.pos]
@@ -199,6 +230,9 @@ class Tokenizer:
                         self.pos += 1
                     return Token(TokenType.TIME, time_val + ampm, start)
                 return Token(TokenType.TIME, time_val, start)
+
+        if len(value) == 10 and value.isdigit():
+            return Token(TokenType.UNIX, value, start)
 
         return Token(TokenType.NUMBER, value, start)
 
@@ -223,12 +257,24 @@ class Tokenizer:
             return Token(TokenType.OFFSET, value, start)
         if value in ORDINALS:
             return Token(TokenType.ORDINAL, value, start)
+        if value in TIMEZONES:
+            return Token(TokenType.TIMEZONE, value, start)
+        if value == "at":
+            return Token(TokenType.AT, value, start)
 
         return Token(TokenType.WORD, value, start)
 
     def _tokenize_separator(self) -> Token:
         char = self.buf[self.pos]
         self.pos += 1
+
+        if char in "+-" and self.prev_token_type == TokenType.TIME:
+            tz_val = char
+            while self.pos < len(self.buf) and (self.buf[self.pos].isdigit() or self.buf[self.pos] == ":"):
+                tz_val += self.buf[self.pos]
+                self.pos += 1
+            return Token(TokenType.TIMEZONE, tz_val, self.pos - len(tz_val))
+
         return Token(TokenType.DATE_SEPARATOR, char, self.pos - 1)
 
     def _tokenize_time_separator(self) -> Token:

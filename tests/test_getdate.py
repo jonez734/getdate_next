@@ -369,15 +369,22 @@ class TestGetDate(unittest.TestCase):
         self.assertEqual(result.minute, 0)
 
     def test_days_until_ordinal(self):
-        """Test 'days until 2nd wednesday april 2026' returns timedelta."""
-        result = getdate("days until 2nd wednesday april 2026")
+        """Test 'days until 2nd wednesday' returns timedelta."""
+        now = datetime.now()
+        future_year = now.year if now.month < 11 else now.year + 1
+        future_month = now.month + 1 if now.month < 12 else 1
+        month_name = ["january", "february", "march", "april", "may", "june",
+                      "july", "august", "september", "october", "november", "december"][future_month - 1]
+        result = getdate(f"days until 2nd wednesday of {month_name} {future_year}")
         self.assertIsNotNone(result)
         self.assertIsInstance(result, timedelta)
         self.assertGreater(result.days, 0)
 
     def test_days_until_final(self):
-        """Test 'days until final friday of may 2026' returns timedelta."""
-        result = getdate("days until final friday of may 2026")
+        """Test 'days until final friday' returns timedelta."""
+        now = datetime.now()
+        future_year = now.year if now.month < 11 else now.year + 1
+        result = getdate(f"days until final friday of december {future_year}")
         self.assertIsNotNone(result)
         self.assertIsInstance(result, timedelta)
         self.assertGreater(result.days, 0)
@@ -391,7 +398,9 @@ class TestGetDate(unittest.TestCase):
 
     def test_days_since_past(self):
         """Test 'days since' with a past date returns timedelta."""
-        result = getdate("days since 2nd wednesday march 2026")
+        now = datetime.now()
+        past_year = now.year - 1
+        result = getdate(f"days since 2nd wednesday march {past_year}")
         self.assertIsNotNone(result)
         self.assertIsInstance(result, timedelta)
         self.assertGreater(result.days, 0)
@@ -505,6 +514,127 @@ class TestTimezonePreservation(unittest.TestCase):
         self.assertEqual(result.hour, 0)
         offset = result.utcoffset()
         self.assertEqual(offset, timedelta(hours=12))
+
+
+class TestNewFormats(unittest.TestCase):
+    """Tests for newly implemented formats from SPEC.md."""
+
+    def test_ordinal_with_relative(self):
+        """Test '2nd wednesday next month 2026' - ordinal + relative unit."""
+        result = getdate("2nd wednesday next month 2026")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.weekday(), 2)  # Wednesday
+        self.assertEqual(result.month, 5)  # May (next month from April)
+
+    def test_day_at_special_time(self):
+        """Test 'next thursday at noon' - day + at + time."""
+        result = getdate("next thursday at noon")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.weekday(), 3)  # Thursday
+        self.assertEqual(result.hour, 12)
+        self.assertEqual(result.minute, 0)
+
+    def test_rfc822(self):
+        """Test RFC 822 format 'Fri Mar 6 09:45:35 PM EST 2026'."""
+        result = getdate("Fri Mar 6 09:45:35 PM EST 2026")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
+        self.assertEqual(result.hour, 21)
+        self.assertEqual(result.minute, 45)
+        self.assertEqual(result.second, 35)
+        offset = result.utcoffset()
+        self.assertEqual(offset, timedelta(hours=-5))
+
+    def test_full_date_time(self):
+        """Test 'Monday, March 06, 2026 10:15 AM'."""
+        result = getdate("Monday, March 06, 2026 10:15 AM")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
+        self.assertEqual(result.hour, 10)
+        self.assertEqual(result.minute, 15)
+
+    def test_international_date_slash(self):
+        """Test international date '13/03/2026' (DD/MM/YYYY) - unambiguous."""
+        result = getdate("13/03/2026")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 13)
+
+    def test_international_date_dash(self):
+        """Test international date '06-Mar-2026'."""
+        result = getdate("06-Mar-2026")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
+
+    def test_24hour_time(self):
+        """Test 24-hour time '14:30:00' returns today's date."""
+        result = getdate("14:30:00")
+        self.assertIsNotNone(result)
+        now = datetime.now()
+        self.assertEqual(result.date(), now.date())
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 30)
+        self.assertEqual(result.second, 0)
+
+    def test_12hour_time(self):
+        """Test 12-hour time '02:30:00 PM' returns today's date."""
+        result = getdate("02:30:00 PM")
+        self.assertIsNotNone(result)
+        now = datetime.now()
+        self.assertEqual(result.date(), now.date())
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 30)
+
+    def test_short_12hour_time(self):
+        """Test short 12-hour time '0230p' returns today's date."""
+        result = getdate("0230p")
+        self.assertIsNotNone(result)
+        now = datetime.now()
+        self.assertEqual(result.date(), now.date())
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 30)
+
+    def test_rfc3339(self):
+        """Test RFC 3339 format '2026-03-06 21:54:30+00:00'."""
+        result = getdate("2026-03-06 21:54:30+00:00")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
+        self.assertEqual(result.hour, 21)
+        self.assertEqual(result.minute, 54)
+        self.assertEqual(result.second, 30)
+        offset = result.utcoffset()
+        self.assertEqual(offset, timedelta(hours=0))
+
+    def test_rfc1123(self):
+        """Test RFC 1123 format 'Fri, 06 Mar 2026 21:54:30 GMT'."""
+        result = getdate("Fri, 06 Mar 2026 21:54:30 GMT")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.year, 2026)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
+        self.assertEqual(result.hour, 21)
+        self.assertEqual(result.minute, 54)
+        self.assertEqual(result.second, 30)
+        self.assertEqual(result.tzinfo, timezone.utc)
+
+    def test_unix_timestamp(self):
+        """Test Unix timestamp '1741305270'."""
+        result = getdate("1741305270")
+        self.assertIsNotNone(result)
+        # 1741305270 = March 6, 2026 19:54:30 UTC
+        self.assertEqual(result.year, 2025)
+        self.assertEqual(result.month, 3)
+        self.assertEqual(result.day, 6)
 
 
 if __name__ == "__main__":

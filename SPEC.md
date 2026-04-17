@@ -85,7 +85,7 @@ composer install
 - days until final friday of may 2026 ✅
 - days since 2nd wednesday march 2026 ✅
 - 2nd wednesday of march 2026 ✅
-- 2nd wednesday next month 2026 ❌ (not implemented)
+- 2nd wednesday next month 2026 ✅
 - 202603062145 ✅
 
 - 3/5/2026 21:45 ✅
@@ -95,7 +95,7 @@ composer install
 - Standard Date (US): 03/06/2026 ✅
 - Year-Month-Day: 2026-03-06 ✅
 
-- next thursday at noon ❌ (not implemented)
+- next thursday at noon ✅
 - last friday ✅
 - final friday of march 2026 ✅
 - 1st monday of march ✅
@@ -108,17 +108,21 @@ composer install
 - tomorrow ✅
 - +2 weeks ✅
 
+## Implemented Additional Formats
+
+- RFC 822: `Fri Mar 6 09:45:35 PM EST 2026` ✅
+- Full Date & Time: `Monday, March 06, 2026 10:15 AM` ✅
+- Standard Date (International): `06/03/2026` or `06-Mar-2026` ✅
+- Time (24-hour): `14:30:00` ✅
+- Time (12-hour): `02:30:00 PM` ✅
+- Time (short 12-hour): `0230p` ✅
+- RFC 3339: `2026-03-06 21:54:30+00:00` ✅
+- RFC 1123 / RFC 822: `Fri, 06 Mar 2026 21:54:30 GMT` ✅
+- Unix Timestamp: `1741305270` ✅
+
 ## Not Yet Implemented
 
-- Fri Mar  6 09:45:35 PM EST 2026 (RFC 822)
-- Full Date & Time: Monday, March 06, 2026 10:15 AM
-- Standard Date (International): 06/03/2026 or 06-Mar-2026
-- Time (24-hour): 14:30:00
-- Time (12-hour): 02:30:00 PM
-- Time (short 12-hour): 0230p
-- RFC 3339: 2026-03-06 21:54:30+00:00
-- RFC 1123 / RFC 822: Fri, 06 Mar 2026 21:54:30 GMT
-- Unix Timestamp: 1741305270
+None - all formats implemented!
 
 ## Architecture
 

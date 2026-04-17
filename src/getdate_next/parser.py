@@ -10,6 +10,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 from .lexer import Token, TokenType, tokenize
+from .timezone_data import TIMEZONE_ABBREV_OFFSET, get_timezone
 
 
 class DateParseError(Exception):
@@ -129,19 +130,38 @@ class Parser:
             raise DateParseError(f"Expected {token_type}, got {tok.type}")
         return self.advance()
 
+    def peek_token_ahead(self, offset: int) -> Optional[Token]:
+        idx = self.pos + offset
+        if 0 <= idx < len(self.tokens):
+            return self.tokens[idx]
+        return None
+
     def parse(self) -> Optional[datetime]:
         if not self.tokens or self.tokens[0].type == TokenType.EOF:
             return None
 
         parsers = [
+            self._parse_unix_timestamp,
             self._parse_absolute_numeric,
-            self._parse_iso8601,
+            self._parse_rfc822,
+            self._parse_rfc1123,
+            self._parse_rfc3339,
+            self._parse_full_date_time,
             self._parse_us_datetime,
+            self._parse_international_date,
+            self._parse_iso8601,
             self._parse_relative_with_time,
+            self._parse_day_at_time,
+            self._parse_ordinal_with_relative,
             self._parse_relative_offset,
             self._parse_relative_day,
             self._parse_ordinal_day,
             self._parse_relative_unit,
+            self._parse_days_until,
+            self._parse_days_since,
+            self._parse_24hour_time,
+            self._parse_12hour_time,
+            self._parse_short_12hour_time,
         ]
 
         for parser in parsers:
@@ -274,7 +294,21 @@ class Parser:
         if not has_sep:
             return None
 
-        buf = "".join(tok.value for tok in self.tokens if tok.type != TokenType.EOF)
+        buf = ""
+        prev_type = None
+        for tok in self.tokens:
+            if tok.type == TokenType.EOF:
+                break
+            if buf:
+                if tok.type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif prev_type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR):
+                    buf += " "
+            buf += tok.value
+            prev_type = tok.type
+
         pattern = r"^(\d{1,2})/(\d{1,2})/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(a|p|am|pm)?)?$"
         m = re.match(pattern, buf, re.IGNORECASE)
         if m:
@@ -517,17 +551,21 @@ class Parser:
         saved_pos = self.pos
 
         buf = ""
+        prev_type = None
         for tok in self.tokens:
             if tok.type == TokenType.EOF:
                 break
-            if buf and tok.type not in (
-                TokenType.DATE_SEPARATOR,
-                TokenType.TIME_SEPARATOR,
-            ):
-                buf += " "
+            if buf:
+                if tok.type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif prev_type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR):
+                    buf += " "
             buf += tok.value
+            prev_type = tok.type
 
-        pattern = r"^(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+)?(\d{4})?$"
+        pattern = r"^(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s+(?:of\s+)?(?:(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*)?(\d{4})?$"
         m = re.match(pattern, buf, re.IGNORECASE)
         if m:
             ordinal_str, day_name, month_str, year_str = m.groups()
@@ -682,6 +720,671 @@ class Parser:
                         self.now.second,
                         tzinfo=LOCAL_TZ,
                     )
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_ordinal_with_relative(self) -> Optional[datetime]:
+        """Parse '2nd wednesday next month 2026' - ordinal + day + modifier + unit + year."""
+        saved_pos = self.pos
+
+        try:
+            ordinal_tok = self.peek()
+            if ordinal_tok.type != TokenType.ORDINAL:
+                self.pos = saved_pos
+                return None
+            self.advance()
+
+            day_tok = self.peek()
+            if day_tok.type != TokenType.DAY:
+                self.pos = saved_pos
+                return None
+            self.advance()
+            target_day = DAYS_MAP[day_tok.value]
+
+            modifier_tok = self.peek()
+            if modifier_tok.type != TokenType.MODIFIER or modifier_tok.value not in ("next", "last"):
+                self.pos = saved_pos
+                return None
+            self.advance()
+            modifier = modifier_tok.value
+
+            unit_tok = self.peek()
+            if unit_tok.type != TokenType.UNIT or unit_tok.value not in ("month", "year", "week"):
+                self.pos = saved_pos
+                return None
+            self.advance()
+            unit = unit_tok.value
+
+            year = self.now.year
+            year_tok = self.peek()
+            if year_tok.type == TokenType.NUMBER and len(year_tok.value) == 4:
+                year = int(year_tok.value)
+                self.advance()
+
+            ordinal = ORDINALS_MAP.get(ordinal_tok.value, 1)
+
+            if unit == "month":
+                month = self.now.month + (1 if modifier == "next" else -1)
+                target_year = self.now.year
+                while month > 12:
+                    month -= 12
+                    target_year += 1
+                while month < 1:
+                    month += 12
+                    target_year -= 1
+                year = target_year
+            elif unit == "year":
+                year = self.now.year + (1 if modifier == "next" else -1)
+                month = self.now.month
+            else:
+                days = 7 if modifier == "next" else -7
+                return self.now + timedelta(days=days)
+
+            count = 0
+            for d in range(1, 32):
+                try:
+                    dt = date(year, month, d)
+                except ValueError:
+                    break
+                if dt.weekday() == target_day:
+                    count += 1
+                    if count == ordinal:
+                        return datetime(
+                            year,
+                            month,
+                            d,
+                            self.now.hour,
+                            self.now.minute,
+                            self.now.second,
+                            tzinfo=LOCAL_TZ,
+                        )
+
+            raise DateParseError(f"No {ordinal_tok.value} {day_tok.value} in {month}/{year}")
+
+        except DateParseError:
+            self.pos = saved_pos
+            raise
+
+    def _parse_day_at_time(self) -> Optional[datetime]:
+        """Parse 'next thursday at noon' - modifier + day + at + time."""
+        saved_pos = self.pos
+
+        modifier = None
+        modifier_tok = self.peek()
+        if modifier_tok.type == TokenType.MODIFIER:
+            modifier = modifier_tok.value
+            self.advance()
+
+        day_tok = self.peek()
+        if day_tok.type != TokenType.DAY:
+            self.pos = saved_pos
+            return None
+        self.advance()
+        target_day = DAYS_MAP[day_tok.value]
+
+        at_tok = self.peek()
+        if at_tok.type != TokenType.AT:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        time_tok = self.peek()
+        if time_tok.type != TokenType.TIME:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        time_parsed = self._parse_time(time_tok.value)
+        if not time_parsed:
+            self.pos = saved_pos
+            return None
+
+        hour, minute = time_parsed
+
+        days_ahead = target_day - self.now.weekday()
+        if modifier == "next":
+            if days_ahead <= 0:
+                days_ahead += 7
+        elif modifier == "last" or modifier == "previous":
+            if days_ahead >= 0:
+                days_ahead -= 7
+        else:
+            if days_ahead <= 0:
+                days_ahead += 7
+
+        target_date = self.now + timedelta(days=days_ahead)
+        return datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            hour,
+            minute,
+            0,
+            tzinfo=LOCAL_TZ,
+        )
+
+    def _parse_rfc822(self) -> Optional[datetime]:
+        """Parse 'Fri Mar 6 09:45:35 PM EST 2026'."""
+        saved_pos = self.pos
+
+        buf = ""
+        for tok in self.tokens:
+            if tok.type == TokenType.EOF:
+                break
+            if buf and tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR):
+                buf += " "
+            buf += tok.value
+
+        pattern = r"^([a-z]{3})\s+([a-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(am|pm)\s+([a-z]{3})\s+(\d{4})$"
+        m = re.match(pattern, buf, re.IGNORECASE)
+        if m:
+            day_abbr, month_abbr, day_num, hour, minute, second, ampm, tz_abbr, year = m.groups()
+
+            hour = int(hour)
+            minute = int(minute)
+            second = int(second)
+            ampm = ampm.lower()
+            if ampm == "pm" and hour != 12:
+                hour += 12
+            elif ampm == "am" and hour == 12:
+                hour = 0
+
+            month = MONTHS_MAP.get(month_abbr.lower())
+            if not month:
+                self.pos = saved_pos
+                return None
+
+            year = int(year)
+            day = int(day_num)
+
+            tz_offset = TIMEZONE_ABBREV_OFFSET.get(tz_abbr.lower(), 0)
+            from datetime import timezone
+            tzinfo = timezone(timedelta(hours=tz_offset))
+
+            try:
+                return datetime(year, month, day, hour, minute, second, tzinfo=tzinfo)
+            except ValueError:
+                raise DateParseError("Invalid RFC 822 date")
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_rfc1123(self) -> Optional[datetime]:
+        """Parse 'Fri, 06 Mar 2026 21:54:30 GMT'."""
+        saved_pos = self.pos
+
+        buf = ""
+        prev_type = None
+        for tok in self.tokens:
+            if tok.type == TokenType.EOF:
+                break
+            if buf:
+                if tok.type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type == TokenType.COMMA:
+                    pass
+                elif prev_type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR):
+                    buf += " "
+            buf += tok.value
+            prev_type = tok.type
+
+        pattern = r"^([a-z]{3}),?\s+(\d{1,2})\s+([a-z]{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+([a-z]{3,4})$"
+        m = re.match(pattern, buf, re.IGNORECASE)
+        if m:
+            day_abbr, day_num, month_abbr, year, hour, minute, second, tz_abbr = m.groups()
+
+            month = MONTHS_MAP.get(month_abbr.lower())
+            if not month:
+                self.pos = saved_pos
+                return None
+
+            year = int(year)
+            month = int(month)
+            day = int(day_num)
+            hour = int(hour)
+            minute = int(minute)
+            second = int(second)
+
+            tz_abbr_lower = tz_abbr.lower()
+            if tz_abbr_lower in ("gmt", "utc", "z"):
+                from datetime import timezone
+                tzinfo = timezone.utc
+            else:
+                tz_offset = TIMEZONE_ABBREV_OFFSET.get(tz_abbr_lower, 0)
+                from datetime import timezone
+                tzinfo = timezone(timedelta(hours=tz_offset))
+
+            try:
+                return datetime(year, month, day, hour, minute, second, tzinfo=tzinfo)
+            except ValueError:
+                raise DateParseError("Invalid RFC 1123 date")
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_rfc3339(self) -> Optional[datetime]:
+        """Parse '2026-03-06 21:54:30+00:00' (space instead of T)."""
+        saved_pos = self.pos
+
+        buf = ""
+        prev_type = None
+        for tok in self.tokens:
+            if tok.type == TokenType.EOF:
+                break
+            if buf:
+                if tok.type == TokenType.TIMEZONE and prev_type == TokenType.TIME:
+                    pass
+                elif tok.type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif prev_type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR, TokenType.TIMEZONE):
+                    buf += " "
+            buf += tok.value
+            prev_type = tok.type
+
+        pattern = r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})([+-]\d{2}:\d{2}|Z)?$"
+        m = re.match(pattern, buf, re.IGNORECASE)
+        if m:
+            year, month, day, hour, minute, second, tz = m.groups()
+
+            year = int(year)
+            month = int(month)
+            day = int(day)
+            hour = int(hour)
+            minute = int(minute)
+            second = int(second)
+
+            if tz and tz.upper() == "Z":
+                tzinfo = timezone.utc
+            elif tz:
+                sign = 1 if tz[0] == "+" else -1
+                tz_h = int(tz[1:3])
+                tz_m = int(tz[4:6]) if len(tz) > 4 else 0
+                tzinfo = timezone(timedelta(hours=sign * tz_h, minutes=sign * tz_m))
+            else:
+                tzinfo = LOCAL_TZ
+
+            try:
+                return datetime(year, month, day, hour, minute, second, tzinfo=tzinfo)
+            except ValueError:
+                raise DateParseError("Invalid RFC 3339 date")
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_full_date_time(self) -> Optional[datetime]:
+        """Parse 'Monday, March 06, 2026 10:15 AM'."""
+        saved_pos = self.pos
+
+        tok1 = self.peek()
+        if tok1.type != TokenType.DAY:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        comma1 = self.peek()
+        if comma1.type != TokenType.COMMA:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        month_tok = self.peek()
+        if month_tok.type != TokenType.MONTH:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        day_tok = self.peek()
+        if day_tok.type != TokenType.NUMBER:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        comma2 = self.peek()
+        if comma2.type != TokenType.COMMA:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        year_tok = self.peek()
+        if year_tok.type != TokenType.NUMBER or len(year_tok.value) != 4:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        time_tok = self.peek()
+        if time_tok.type != TokenType.TIME:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        ampm_tok = self.peek()
+        ampm = None
+        if ampm_tok.type == TokenType.TIME and ampm_tok.value.lower() in ("am", "pm", "a", "p"):
+            ampm = ampm_tok.value.lower()
+            self.advance()
+
+        time_parsed = self._parse_time(time_tok.value)
+        if not time_parsed:
+            self.pos = saved_pos
+            return None
+
+        hour, minute = time_parsed
+
+        if ampm:
+            if ampm in ("pm", "p") and hour != 12:
+                hour += 12
+            elif ampm in ("am", "a") and hour == 12:
+                hour = 0
+
+        try:
+            return datetime(
+                int(year_tok.value),
+                MONTHS_MAP[month_tok.value],
+                int(day_tok.value),
+                hour,
+                minute,
+                0,
+                tzinfo=LOCAL_TZ,
+            )
+        except ValueError:
+            raise DateParseError("Invalid full date time")
+
+    def _parse_international_date(self) -> Optional[datetime]:
+        """Parse '06/03/2026' (day-first) or '06-Mar-2026'."""
+        saved_pos = self.pos
+
+        buf = ""
+        prev_type = None
+        for tok in self.tokens:
+            if tok.type == TokenType.EOF:
+                break
+            if buf:
+                if tok.type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif prev_type == TokenType.DATE_SEPARATOR:
+                    pass
+                elif tok.type not in (TokenType.DATE_SEPARATOR, TokenType.TIME_SEPARATOR):
+                    buf += " "
+            buf += tok.value
+            prev_type = tok.type
+
+        pattern = r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$"
+        m = re.match(pattern, buf)
+        if m:
+            first, second, year = m.groups()
+
+            first = int(first)
+            second = int(second)
+
+            if first <= 12 and second <= 12:
+                month_num = second
+                day = first
+            elif first > 12:
+                month_num = second
+                day = first
+            else:
+                month_num = first
+                day = second
+
+            year_str = year
+            if len(year_str) == 2:
+                year = 2000 + int(year_str)
+                if year < 1970:
+                    year += 100
+            else:
+                year = int(year_str)
+
+            try:
+                return datetime(year, month_num, day, tzinfo=LOCAL_TZ)
+            except ValueError:
+                raise DateParseError("Invalid international date")
+
+        pattern = r"^(\d{1,2})-([a-z]{3})-(\d{4})$"
+        m = re.match(pattern, buf, re.IGNORECASE)
+        if m:
+            day, month_abbr, year = m.groups()
+
+            month = MONTHS_MAP.get(month_abbr.lower())
+            if not month:
+                self.pos = saved_pos
+                return None
+
+            try:
+                return datetime(int(year), month, int(day), tzinfo=LOCAL_TZ)
+            except ValueError:
+                raise DateParseError("Invalid international date")
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_24hour_time(self) -> Optional[datetime]:
+        """Parse '14:30:00' - returns today's date with this time."""
+        saved_pos = self.pos
+
+        tok = self.peek()
+        if tok.type != TokenType.TIME:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        time_val = tok.value
+        if ":" not in time_val:
+            self.pos = saved_pos
+            return None
+
+        next_tok = self.peek()
+        if next_tok.type == TokenType.TIME and next_tok.value.lower() in ("am", "pm", "a", "p"):
+            self.pos = saved_pos
+            return None
+
+        pattern = r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$"
+        m = re.match(pattern, time_val)
+        if not m:
+            self.pos = saved_pos
+            return None
+
+        hour = int(m.group(1))
+        minute = int(m.group(2))
+        second = int(m.group(3)) if m.group(3) else 0
+
+        if hour > 23 or minute > 59 or second > 59:
+            self.pos = saved_pos
+            return None
+
+        return datetime(
+            self.now.year,
+            self.now.month,
+            self.now.day,
+            hour,
+            minute,
+            second,
+            tzinfo=LOCAL_TZ,
+        )
+
+    def _parse_12hour_time(self) -> Optional[datetime]:
+        """Parse '02:30:00 PM' - returns today's date with this time."""
+        saved_pos = self.pos
+
+        tok = self.peek()
+        if tok.type != TokenType.TIME:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        time_val = tok.value
+        if ":" not in time_val:
+            self.pos = saved_pos
+            return None
+
+        ampm_tok = self.peek()
+        ampm = None
+        if ampm_tok.type == TokenType.TIME and ampm_tok.value.lower() in ("am", "pm", "a", "p"):
+            ampm = ampm_tok.value.lower()
+            self.advance()
+
+        if not ampm:
+            self.pos = saved_pos
+            return None
+
+        pattern = r"^(\d{1,2}):(\d{2}):(\d{2})$"
+        m = re.match(pattern, time_val)
+        if not m:
+            self.pos = saved_pos
+            return None
+
+        hour = int(m.group(1))
+        minute = int(m.group(2))
+        second = int(m.group(3))
+
+        if ampm in ("pm", "p") and hour != 12:
+            hour += 12
+        elif ampm in ("am", "a") and hour == 12:
+            hour = 0
+
+        if hour > 23 or minute > 59 or second > 59:
+            self.pos = saved_pos
+            return None
+
+        return datetime(
+            self.now.year,
+            self.now.month,
+            self.now.day,
+            hour,
+            minute,
+            second,
+            tzinfo=LOCAL_TZ,
+        )
+
+    def _parse_short_12hour_time(self) -> Optional[datetime]:
+        """Parse '0230p' - returns today's date with this time."""
+        saved_pos = self.pos
+
+        tok = self.peek()
+        if tok.type != TokenType.NUMBER:
+            self.pos = saved_pos
+            return None
+
+        num_val = tok.value
+        if len(num_val) < 3 or len(num_val) > 4:
+            self.pos = saved_pos
+            return None
+
+        ampm_tok = self.peek_token_ahead(1)
+        ampm = None
+        if ampm_tok and ampm_tok.type == TokenType.TIME and ampm_tok.value.lower() in ("am", "pm", "a", "p"):
+            ampm = ampm_tok.value.lower()
+            self.advance()
+
+        if not ampm:
+            self.pos = saved_pos
+            return None
+
+        self.advance()
+
+        if len(num_val) == 4:
+            hour = int(num_val[:2])
+            minute = int(num_val[2:])
+        else:
+            hour = int(num_val[0])
+            minute = int(num_val[1:])
+
+        if ampm in ("pm", "p") and hour != 12:
+            hour += 12
+        elif ampm in ("am", "a") and hour == 12:
+            hour = 0
+
+        if hour > 23 or minute > 59:
+            self.pos = saved_pos
+            return None
+
+        return datetime(
+            self.now.year,
+            self.now.month,
+            self.now.day,
+            hour,
+            minute,
+            0,
+            tzinfo=LOCAL_TZ,
+        )
+
+    def _parse_unix_timestamp(self) -> Optional[datetime]:
+        """Parse '1741305270' - Unix timestamp."""
+        saved_pos = self.pos
+
+        tok = self.peek()
+        if tok.type != TokenType.UNIX:
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        try:
+            timestamp = int(tok.value)
+            return datetime.fromtimestamp(timestamp, tz=LOCAL_TZ)
+        except (ValueError, OSError):
+            self.pos = saved_pos
+            return None
+
+    def _parse_days_until(self) -> Optional[datetime]:
+        """Parse 'days until <date>' - returns datetime for target date calculation."""
+        saved_pos = self.pos
+
+        tok1 = self.peek()
+        if tok1.type != TokenType.UNIT or tok1.value not in ("day", "days"):
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        tok2 = self.peek()
+        if tok2.type != TokenType.OFFSET or tok2.value != "until":
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        target_date = self._parse_ordinal_day()
+        if target_date is None:
+            target_date = self._parse_relative_day()
+        if target_date is None:
+            target_date = self._parse_iso8601()
+        if target_date is None:
+            target_date = self._parse_us_datetime()
+
+        if target_date is not None:
+            return target_date
+
+        self.pos = saved_pos
+        return None
+
+    def _parse_days_since(self) -> Optional[datetime]:
+        """Parse 'days since <date>' - returns datetime for target date calculation."""
+        saved_pos = self.pos
+
+        tok1 = self.peek()
+        if tok1.type != TokenType.UNIT or tok1.value not in ("day", "days"):
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        tok2 = self.peek()
+        if tok2.type != TokenType.OFFSET or tok2.value != "since":
+            self.pos = saved_pos
+            return None
+        self.advance()
+
+        target_date = self._parse_ordinal_day()
+        if target_date is None:
+            target_date = self._parse_relative_day()
+        if target_date is None:
+            target_date = self._parse_iso8601()
+        if target_date is None:
+            target_date = self._parse_us_datetime()
+
+        if target_date is not None:
+            return target_date
 
         self.pos = saved_pos
         return None
