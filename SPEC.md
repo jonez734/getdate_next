@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTED** - Core functionality complete in `getdate.py` and PHP version in `php/`
+**IMPLEMENTED** - Core functionality complete in `getdate.py`, PHP version in `php/`, and Perl version in `perl/`
 
 ## PHP Implementation
 
@@ -36,6 +36,39 @@ if (Getdate::verifyValidDateExpression("tomorrow")) {
 cd php
 composer install
 ./vendor/bin/phpunit tests/
+```
+
+## Perl Implementation
+
+A full Perl port is available in the `perl/` directory with feature parity to the Python version. Uses core modules only (no external dependencies).
+
+### Perl Usage
+
+```perl
+use Getdate::Getdate;
+
+# Parse a date expression - returns Getdate::DateTime
+my $result = Getdate::Getdate::getdate("next friday");
+print $result->format("%Y-%m-%d %H:%M:%S");  # 2026-04-23 22:05:00
+
+# Returns Getdate::DateInterval for "days until/since" expressions
+my $result = Getdate::Getdate::getdate("days until 2nd wednesday april 2026");
+print $result->format("%a days");  # 356 days
+
+# Unix timestamp variant
+my $timestamp = Getdate::Getdate::getdate_timestamp("next friday");
+
+# Verify a date expression
+if (Getdate::Getdate::verify_valid_date_expression("tomorrow")) {
+    print "Valid!";
+}
+```
+
+### Perl Running Tests
+
+```bash
+cd perl
+perl -I lib t/01-basic.t
 ```
 
 ## details
@@ -126,15 +159,28 @@ None - all formats implemented!
 
 ## Architecture
 
+### Python
 ```
 getdate.py       - Main entry point (getdate(), verify_valid_date_expression())
 _parser.py       - Parser functions (extensible)
+```
+
+### Perl
+```
+perl/lib/Getdate/
+  Getdate.pm      - Main entry point (getdate(), verify_valid_date_expression())
+  Lexer.pm        - Tokenizer
+  Parser.pm       - Parser functions (extensible)
+  DateTime.pm     - Minimal DateTime-like class (core modules only)
+  DateInterval.pm - DateInterval class
 ```
 
 Each format has its own parser function that can be added to the `parsers` list
 in `getdate()`. This makes the system easily extensible for new formats.
 
 ## Usage
+
+### Python
 
 ```python
 from getdate import getdate, verify_valid_date_expression
@@ -148,9 +194,33 @@ if verify_valid_date_expression("tomorrow"):
     print("Valid!")
 ```
 
+### Perl
+
+```perl
+use Getdate::Getdate;
+
+# Parse a date expression
+my $result = Getdate::Getdate::getdate("next friday");
+print $result->format("%Y-%m-%d %H:%M:%S");  # 2026-04-23 22:05:00
+
+# Validate a date expression
+if (Getdate::Getdate::verify_valid_date_expression("tomorrow")) {
+    print "Valid!\n";
+}
+```
+
 ## Running Tests
+
+### Python
 
 ```bash
 python getdate.py                    # Run all test cases
 python getdate.py "next week"        # Test specific expression
+```
+
+### Perl
+
+```bash
+cd perl
+perl -I lib t/01-basic.t
 ```
