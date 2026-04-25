@@ -4,7 +4,8 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from getdate_next.getdate import getdate, verify_valid_date_expression
+from getdate_next.getdate import getdate, verify_valid_date_expression, validate
+from getdate_next.validation import ValidationResult, ValidationError
 
 
 class TestGetDate(unittest.TestCase):
@@ -635,6 +636,145 @@ class TestNewFormats(unittest.TestCase):
         self.assertEqual(result.year, 2025)
         self.assertEqual(result.month, 3)
         self.assertEqual(result.day, 6)
+
+
+class TestValidation(unittest.TestCase):
+    """Tests for validation module."""
+
+    def test_validate_valid_date(self):
+        """Test validation of valid date."""
+        result = validate("2026-03-15")
+        self.assertTrue(result.valid)
+        self.assertEqual(len(result.errors), 0)
+
+    def test_validate_february_30(self):
+        """Test validation catches invalid Feb 30."""
+        result = validate("2026-02-30")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("February 30 does not exist" in e.message for e in result.errors))
+
+    def test_validate_february_29_non_leap(self):
+        """Test validation catches Feb 29 in non-leap year."""
+        result = validate("2026-02-29")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("February 29 does not exist" in e.message for e in result.errors))
+
+    def test_validate_february_29_leap_year(self):
+        """Test validation accepts Feb 29 in leap year."""
+        result = validate("2028-02-29")
+        self.assertTrue(result.valid)
+
+    def test_validate_april_31(self):
+        """Test validation catches invalid Apr 31."""
+        result = validate("2026-04-31")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("April 31 does not exist" in e.message for e in result.errors))
+
+    def test_validate_month_13(self):
+        """Test validation catches invalid month 13."""
+        result = validate("2026-13-01")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("month 13 is invalid" in e.message for e in result.errors))
+
+    def test_validate_month_0(self):
+        """Test validation catches invalid month 0."""
+        result = validate("2026-00-01")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("month 0 is invalid" in e.message for e in result.errors))
+
+    def test_validate_day_32(self):
+        """Test validation catches invalid day 32."""
+        result = validate("2026-01-32")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("January 32 does not exist" in e.message for e in result.errors))
+
+    def test_validate_day_0(self):
+        """Test validation catches invalid day 0."""
+        result = validate("2026-01-00")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("day 0 is invalid" in e.message for e in result.errors))
+
+    def test_validate_hour_25(self):
+        """Test validation catches invalid hour 25."""
+        result = validate("2026-03-15T25:00:00")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("hour 25 is invalid" in e.message for e in result.errors))
+
+    def test_validate_hour_24_valid(self):
+        """Test validation accepts hour 24 (valid in ISO 8601)."""
+        result = validate("2026-03-15T24:00:00")
+        # Hour 24 is invalid in Python datetime (but valid in ISO 8601 for end of day)
+        # Since datetime doesn't support it, this will be invalid
+        self.assertFalse(result.valid)
+
+    def test_validate_minute_60(self):
+        """Test validation catches invalid minute 60."""
+        result = validate("2026-03-15T12:60:00")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("minute 60 is invalid" in e.message for e in result.errors))
+
+    def test_validate_minute_59_valid(self):
+        """Test validation accepts minute 59."""
+        result = validate("2026-03-15T12:59:00")
+        self.assertTrue(result.valid)
+
+    def test_validate_second_60(self):
+        """Test validation catches invalid second 60."""
+        result = validate("2026-03-15T12:30:60")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("second 60 is invalid" in e.message for e in result.errors))
+
+    def test_validate_year_too_early(self):
+        """Test validation catches year before 1900."""
+        result = validate("1899-01-01")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("year 1899 is too early" in e.message for e in result.errors))
+
+    def test_validate_year_too_far(self):
+        """Test validation catches year after 2100."""
+        result = validate("2101-01-01")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("year 2101 is too far" in e.message for e in result.errors))
+
+    def test_validate_us_date_invalid_month(self):
+        """Test validation catches invalid month in US date."""
+        result = validate("13/01/2026")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("month 13 is invalid" in e.message for e in result.errors))
+
+    def test_validate_us_date_invalid_day(self):
+        """Test validation catches invalid day in US date."""
+        result = validate("02/30/2026")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("does not exist" in e.message for e in result.errors))
+
+    def test_validate_compact_format_invalid(self):
+        """Test validation catches invalid compact format."""
+        result = validate("202613012145")
+        self.assertFalse(result.valid)
+        self.assertTrue(any("month 13 is invalid" in e.message for e in result.errors))
+
+    def test_validate_error_messages_list(self):
+        """Test that error_messages property returns list of messages."""
+        result = validate("2026-02-30")
+        self.assertFalse(result.valid)
+        self.assertIsInstance(result.error_messages, list)
+        self.assertTrue(len(result.error_messages) > 0)
+
+    def test_validate_returns_validation_result(self):
+        """Test validate returns ValidationResult type."""
+        result = validate("2026-03-15")
+        self.assertIsInstance(result, ValidationResult)
+
+    def test_validate_invalid_input_none(self):
+        """Test validation of None input."""
+        result = validate(None)
+        self.assertFalse(result.valid)
+
+    def test_validate_invalid_input_empty(self):
+        """Test validation of empty string."""
+        result = validate("")
+        self.assertFalse(result.valid)
 
 
 if __name__ == "__main__":

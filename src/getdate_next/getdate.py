@@ -3,11 +3,21 @@ getdate.py - Parse natural language date expressions into datetime objects.
 
 Returns timezone-aware datetime.datetime objects.
 Supports relative expressions, ordinal days, and various date formats.
+
+Validation module provides date/time validation functions.
 """
 
 import re
 from datetime import datetime, timedelta, date
-from typing import Optional, Union
+from typing import Optional, Union, List
+
+from .validation import (
+    ValidationResult,
+    ValidationError,
+    validate_date,
+    validate_time,
+    validate_datetime,
+)
 
 
 class DateParseError(Exception):
@@ -138,7 +148,7 @@ def getdate(buf: str) -> Optional[Union[datetime, timedelta]]:
 
     from .parser import getdate_with_lexer
 
-    result = getdate_with_lexer(buf_lower)
+    result, _ = getdate_with_lexer(buf_lower)
     return result
 
 
@@ -618,7 +628,7 @@ def _parse_days_until(buf: str, now: datetime) -> Optional[timedelta]:
         date_expr = match.group(1).strip()
         from .parser import getdate_with_lexer
 
-        target_date = getdate_with_lexer(date_expr)
+        target_date, _ = getdate_with_lexer(date_expr)
         if target_date is None:
             target_date = _parse_ordinal_day(date_expr, now)
         if target_date is None:
@@ -644,7 +654,7 @@ def _parse_days_since(buf: str, now: datetime) -> Optional[timedelta]:
         date_expr = match.group(1).strip()
         from .parser import getdate_with_lexer
 
-        target_date = getdate_with_lexer(date_expr)
+        target_date, _ = getdate_with_lexer(date_expr)
         if target_date is None:
             target_date = _parse_ordinal_day(date_expr, now)
         if target_date is None:
@@ -665,6 +675,144 @@ def _parse_days_since(buf: str, now: datetime) -> Optional[timedelta]:
 def verify_valid_date_expression(buf: str) -> bool:
     """Verify if a string is a valid date expression."""
     return getdate(buf) is not None
+
+
+def validate(buf: str) -> ValidationResult:
+    """
+    Parse and validate a date expression.
+
+    Returns a ValidationResult with:
+      - valid: bool - True if the date is valid
+      - errors: List[ValidationError] - List of validation errors
+      - warnings: List[str] - List of warnings (e.g., ambiguous dates)
+
+    Example:
+        >>> result = validate("2026-02-30")
+        >>> result.valid
+        False
+        >>> result.error_messages
+        ['February 30 does not exist (maximum 28 days in February 2026)']
+    """
+    from .parser import getdate_with_lexer
+
+    if not buf or not isinstance(buf, str):
+        return ValidationResult(
+            valid=False,
+            errors=[ValidationError("input", buf, "Input must be a non-empty string")]
+        )
+
+    buf = buf.strip()
+    if not buf:
+        return ValidationResult(
+            valid=False,
+            errors=[ValidationError("input", buf, "Input must be a non-empty string")]
+        )
+
+    buf_lower = buf.lower()
+
+    if buf_lower.startswith("days until ") or buf_lower.startswith("day until "):
+        date_expr = buf_lower[buf_lower.find(" ") + 1:]
+        if date_expr.startswith("until "):
+            date_expr = date_expr[6:]
+        target = getdate(date_expr)
+        if target:
+            return ValidationResult(
+                valid=True,
+                errors=[],
+                warnings=[f"days until {date_expr} returns timedelta, not datetime"]
+            )
+        return ValidationResult(
+            valid=False,
+            errors=[ValidationError("expression", date_expr, f"Could not parse date expression: {date_expr}")]
+        )
+
+    if buf_lower.startswith("days since ") or buf_lower.startswith("day since "):
+        date_expr = buf_lower[buf_lower.find(" ") + 1:]
+        if date_expr.startswith("since "):
+            date_expr = date_expr[6:]
+        target = getdate(date_expr)
+        if target:
+            return ValidationResult(
+                valid=True,
+                errors=[],
+                warnings=[f"days since {date_expr} returns timedelta, not datetime"]
+            )
+        return ValidationResult(
+            valid=False,
+            errors=[ValidationError("expression", date_expr, f"Could not parse date expression: {date_expr}")]
+        )
+
+    result, validation_errors = getdate_with_lexer(buf_lower)
+
+    if result is None:
+        # Return validation errors if we have them, otherwise generic parse error
+        errors = []
+        for err_msg in validation_errors:
+            if "month" in err_msg:
+                field = "month"
+                value = None
+            elif "day" in err_msg:
+                field = "day"
+                value = None
+            elif "hour" in err_msg:
+                field = "hour"
+                value = None
+            elif "minute" in err_msg:
+                field = "minute"
+                value = None
+            elif "second" in err_msg:
+                field = "second"
+                value = None
+            elif "year" in err_msg:
+                field = "year"
+                value = None
+            else:
+                field = "expression"
+                value = buf
+            errors.append(ValidationError(field, value, err_msg))
+        return ValidationResult(
+            valid=False,
+            errors=errors
+        )
+
+    if isinstance(result, timedelta):
+        return ValidationResult(
+            valid=True,
+            errors=[],
+            warnings=[f"Expression '{buf}' returns timedelta, not datetime"]
+        )
+
+    # Convert validation error strings to ValidationError objects
+    errors = []
+    for err_msg in validation_errors:
+        # Parse the error message to determine the field
+        if "month" in err_msg:
+            field = "month"
+            value = result.month
+        elif "day" in err_msg:
+            field = "day"
+            value = result.day
+        elif "hour" in err_msg:
+            field = "hour"
+            value = result.hour
+        elif "minute" in err_msg:
+            field = "minute"
+            value = result.minute
+        elif "second" in err_msg:
+            field = "second"
+            value = result.second
+        elif "year" in err_msg:
+            field = "year"
+            value = result.year
+        else:
+            field = "expression"
+            value = buf
+        errors.append(ValidationError(field, value, err_msg))
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors
+    )
 
 
 if __name__ == "__main__":

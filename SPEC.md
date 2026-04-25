@@ -157,6 +157,63 @@ perl -I lib t/01-basic.t
 
 None - all formats implemented!
 
+## Validation
+
+The module includes a `validate()` function that parses and validates date expressions, returning detailed error messages for invalid dates.
+
+### Validation Features
+
+- **Date validation**: Catches invalid dates like February 30, April 31
+- **Month validation**: Ensures month is 1-12
+- **Day validation**: Checks valid days for each month (handles leap years)
+- **Time validation**: Validates hour (0-23), minute (0-59), second (0-59)
+- **Year validation**: Ensures year is in range 1900-2100
+
+### Python Validation Usage
+
+```python
+from getdate_next import validate, ValidationResult
+
+# Validate a date expression
+result = validate("2026-02-30")
+
+# Check if valid
+if result.valid:
+    print("Valid date!")
+else:
+    print("Invalid date!")
+    for error in result.errors:
+        print(f"  {error.field}: {error.message}")
+
+# Access error messages easily
+print(result.error_messages)  # ['February 30 does not exist (maximum 28 days in February 2026)']
+```
+
+### Validation Results
+
+The `validate()` function returns a `ValidationResult` object with:
+- `valid`: Boolean indicating if the date is valid
+- `errors`: List of `ValidationError` objects with field, value, and message
+- `error_messages`: Helper property that returns just the error messages
+- `warnings`: List of warnings (e.g., ambiguous dates, timedelta results)
+
+### Validation Examples
+
+```python
+validate("2026-02-28")     # Valid ✓
+validate("2026-02-29")     # Invalid - not a leap year
+validate("2028-02-29")     # Valid ✓ (leap year)
+validate("2026-04-31")     # Invalid - April has 30 days
+validate("2026-13-01")     # Invalid - month must be 1-12
+validate("2026-01-32")     # Invalid - day must be 1-31
+validate("2026-03-15T25:00:00")  # Invalid - hour must be 0-23
+validate("2026-03-15T12:60:00")  # Invalid - minute must be 0-59
+validate("13/01/2026")     # Invalid - month 13 doesn't exist
+validate("02/30/2026")     # Invalid - February 30 doesn't exist
+validate("1899-01-01")     # Invalid - year too early (min 1900)
+validate("2101-01-01")     # Invalid - year too far (max 2100)
+```
+
 ## Architecture
 
 ### Python

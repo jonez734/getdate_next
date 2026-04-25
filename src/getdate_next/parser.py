@@ -1,12 +1,14 @@
 """
-parser.py - Token stream to datetime conversion.
+parser.py - Token stream to datetime conversion with validation.
 
 Parses tokenized date expressions into datetime objects.
+Includes validation of parsed date components.
 """
 
 import re
+import calendar
 from datetime import datetime, timedelta, date, timezone
-from typing import Optional
+from typing import Optional, Tuple, List
 from dataclasses import dataclass
 
 from .lexer import Token, TokenType, tokenize
@@ -17,6 +19,14 @@ class DateParseError(Exception):
     """Raised when a date expression cannot be parsed."""
 
     pass
+
+
+@dataclass
+class ParseResult:
+    """Result of parsing with optional error messages."""
+    datetime: Optional[datetime]
+    errors: List[str]
+    warnings: List[str]
 
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
@@ -113,6 +123,8 @@ class Parser:
         self.tokens = tokens
         self.pos = 0
         self.now = datetime.now(tz=LOCAL_TZ)
+        self.validation_errors: List[str] = []
+        self.validation_warnings: List[str] = []
 
     def peek(self) -> Token:
         if self.pos < len(self.tokens):
@@ -169,7 +181,9 @@ class Parser:
                 result = parser()
                 if result is not None:
                     return result
-            except DateParseError:
+            except (DateParseError, ValueError) as e:
+                if isinstance(e, ValueError):
+                    self.validation_errors.append(str(e))
                 continue
 
         return None
@@ -340,7 +354,7 @@ class Parser:
 
             try:
                 return datetime(year, month, day, hour, minute, second, tzinfo=LOCAL_TZ)
-            except ValueError:
+            except (ValueError, DateParseError):
                 raise DateParseError("Invalid US date")
 
         return None
@@ -1396,17 +1410,195 @@ def parse(tokens: list[Token]) -> Optional[datetime]:
     return parser.parse()
 
 
-def getdate_with_lexer(buf: str) -> Optional[datetime]:
-    """Parse date expression using lexer-based parser."""
+def getdate_with_lexer(buf: str):
+    """Parse date expression using lexer-based parser with validation.
+    
+    Returns:
+        tuple: (Optional[datetime], list of validation error messages)
+        - If datetime is None, check errors for parse failure reason
+        - If datetime is valid but has errors, they are validation warnings
+    """
     if not buf or not isinstance(buf, str):
-        return None
+        return (None, [f"Could not parse date expression: {buf}"])
 
     buf = buf.strip()
     if not buf:
-        return None
+        return (None, ["Input must be a non-empty string"])
 
     tokens = tokenize(buf)
-    return parse(tokens)
+    parser = Parser(tokens)
+    
+    result = parser.parse()
+    
+    # First check if there were any validation errors captured during parsing
+    validation_errors = list(parser.validation_errors)
+    
+    if result is None:
+        # Try to extract and validate date components even if parsing failed
+        # This allows us to provide better error messages for invalid dates
+        import re
+        
+        # Check validation errors from parser first
+        if validation_errors:
+            return (None, validation_errors)
+        
+        # Try ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS (case insensitive)
+        m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[Tt ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?", buf)
+        if m:
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            hour = int(m.group(4)) if m.group(4) else 0
+            minute = int(m.group(5)) if m.group(5) else 0
+            second = int(m.group(6)) if m.group(6) else 0
+            
+            if month < 1 or month > 12:
+                validation_errors.append(f"month {month} is invalid (must be 1-12)")
+            if day < 1:
+                validation_errors.append(f"day {day} is invalid (must be 1-31)")
+            if month >= 1 and month <= 12:
+                max_days = calendar.monthrange(year, month)[1]
+                if day > max_days:
+                    month_name = calendar.month_name[month]
+                    validation_errors.append(
+                        f"{month_name} {day} does not exist (maximum {max_days} days in {month_name} {year})"
+                    )
+            if hour < 0 or hour > 23:
+                validation_errors.append(f"hour {hour} is invalid (must be 0-23)")
+            if minute < 0 or minute > 59:
+                validation_errors.append(f"minute {minute} is invalid (must be 0-59)")
+            if second < 0 or second > 59:
+                validation_errors.append(f"second {second} is invalid (must be 0-59)")
+            if year < 1900:
+                validation_errors.append(f"year {year} is too early (minimum 1900)")
+            if year > 2100:
+                validation_errors.append(f"year {year} is too far in the future (maximum 2100)")
+            
+            if validation_errors:
+                return (None, validation_errors)
+        
+        # Try US format: MM/DD/YYYY or MM/DD/YYYY HH:MM:SS
+        m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(a|p|am|pm)?)?$", buf, re.IGNORECASE)
+        if m:
+            month, day = int(m.group(1)), int(m.group(2))
+            year_str = m.group(3)
+            if len(year_str) == 2:
+                year = 2000 + int(year_str)
+                if year < 1970:
+                    year += 100
+            else:
+                year = int(year_str)
+            
+            if month < 1 or month > 12:
+                validation_errors.append(f"month {month} is invalid (must be 1-12)")
+            if day < 1:
+                validation_errors.append(f"day {day} is invalid (must be 1-31)")
+            if month >= 1 and month <= 12:
+                max_days = calendar.monthrange(year, month)[1]
+                if day > max_days:
+                    month_name = calendar.month_name[month]
+                    validation_errors.append(
+                        f"{month_name} {day} does not exist (maximum {max_days} days in {month_name} {year})"
+                    )
+            
+            if validation_errors:
+                return (None, validation_errors)
+        
+        # Try compact format: YYYYMMDDHHMM
+        m = re.match(r"^(\d{4})(\d{1,2})(\d{1,2})(\d{1,2})(\d{1,2})$", buf)
+        if m:
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            hour, minute = int(m.group(4)), int(m.group(5))
+            
+            if month < 1 or month > 12:
+                validation_errors.append(f"month {month} is invalid (must be 1-12)")
+            if day < 1:
+                validation_errors.append(f"day {day} is invalid (must be 1-31)")
+            if month >= 1 and month <= 12:
+                max_days = calendar.monthrange(year, month)[1]
+                if day > max_days:
+                    month_name = calendar.month_name[month]
+                    validation_errors.append(
+                        f"{month_name} {day} does not exist (maximum {max_days} days in {month_name} {year})"
+                    )
+            if hour < 0 or hour > 23:
+                validation_errors.append(f"hour {hour} is invalid (must be 0-23)")
+            if minute < 0 or minute > 59:
+                validation_errors.append(f"minute {minute} is invalid (must be 0-59)")
+            
+            if validation_errors:
+                return (None, validation_errors)
+        
+        return (None, [f"Could not parse date expression: {buf}"])
+    
+    # Validate date components from the original string
+    # This catches cases where datetime accepts invalid values (like month 13 parsed as year)
+    import re
+    
+    # Try ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS (case insensitive)
+    m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[Tt ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?", buf)
+    if m_iso:
+        year, month, day = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        hour = int(m_iso.group(4)) if m_iso.group(4) else 0
+        minute = int(m_iso.group(5)) if m_iso.group(5) else 0
+        second = int(m_iso.group(6)) if m_iso.group(6) else 0
+        
+        if month < 1 or month > 12:
+            validation_errors.append(f"month {month} is invalid (must be 1-12)")
+        if day < 1:
+            validation_errors.append(f"day {day} is invalid (must be 1-31)")
+        if month >= 1 and month <= 12:
+            max_days = calendar.monthrange(year, month)[1]
+            if day > max_days:
+                month_name = calendar.month_name[month]
+                validation_errors.append(
+                    f"{month_name} {day} does not exist (maximum {max_days} days in {month_name} {year})"
+                )
+        if hour < 0 or hour > 23:
+            validation_errors.append(f"hour {hour} is invalid (must be 0-23)")
+        if minute < 0 or minute > 59:
+            validation_errors.append(f"minute {minute} is invalid (must be 0-59)")
+        if second < 0 or second > 59:
+            validation_errors.append(f"second {second} is invalid (must be 0-59)")
+    
+    # Try US format: MM/DD/YYYY
+    m_us = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(a|p|am|pm)?)?$", buf, re.IGNORECASE)
+    if m_us:
+        month, day = int(m_us.group(1)), int(m_us.group(2))
+        year = int(m_us.group(3)) if len(m_us.group(3)) == 4 else 2000 + int(m_us.group(3))
+        
+        if month < 1 or month > 12:
+            validation_errors.append(f"month {month} is invalid (must be 1-12)")
+        elif day > 0:
+            max_days = calendar.monthrange(year, month)[1]
+            if day > max_days:
+                month_name = calendar.month_name[month]
+                validation_errors.append(
+                    f"{month_name} {day} does not exist (maximum {max_days} days in {month_name} {year})"
+                )
+    
+    # Validate result if we have one
+    if result is not None:
+        max_days = calendar.monthrange(result.year, result.month)[1]
+        if result.day > max_days:
+            month_name = calendar.month_name[result.month]
+            validation_errors.append(
+                f"{month_name} {result.day} does not exist (maximum {max_days} days in {month_name} {result.year})"
+            )
+        if result.day < 1:
+            validation_errors.append(f"day {result.day} is invalid (must be 1-31)")
+        
+        if result.hour < 0 or result.hour > 23:
+            validation_errors.append(f"hour {result.hour} is invalid (must be 0-23)")
+        if result.minute < 0 or result.minute > 59:
+            validation_errors.append(f"minute {result.minute} is invalid (must be 0-59)")
+        if result.second < 0 or result.second > 59:
+            validation_errors.append(f"second {result.second} is invalid (must be 0-59)")
+        
+        if result.year < 1900:
+            validation_errors.append(f"year {result.year} is too early (minimum 1900)")
+        if result.year > 2100:
+            validation_errors.append(f"year {result.year} is too far in the future (maximum 2100)")
+    
+    return (result, validation_errors)
 
 
 if __name__ == "__main__":
