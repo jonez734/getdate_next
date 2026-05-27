@@ -60,9 +60,12 @@ def main() -> int:
     default_year = today.year
     default_month = today.month
 
-    year_input = io.inputinteger(
-        f"{{promptcolor}}year {{valuecolor}}[{default_year}]{{promptcolor}}:{{inputcolor}} "
-    )
+    try:
+        year_input = io.inputinteger(
+            f"{{promptcolor}}year {{valuecolor}}[{default_year}]{{promptcolor}}:{{inputcolor}} "
+        )
+    except KeyboardInterrupt:
+        return 0
     if year_input is not None:
         year_input.strip()
     year = int(year_input) if year_input is not None else default_year
