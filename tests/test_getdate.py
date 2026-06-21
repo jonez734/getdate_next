@@ -522,11 +522,14 @@ class TestNewFormats(unittest.TestCase):
 
     def test_ordinal_with_relative(self):
         """Test '2nd wednesday next month 2026' - ordinal + relative unit."""
+        from datetime import datetime
+        now = datetime.now()
+        expected_month = now.month + 1 if now.month < 12 else 1
         result = getdate("2nd wednesday next month 2026")
         self.assertIsNotNone(result)
         self.assertEqual(result.year, 2026)
         self.assertEqual(result.weekday(), 2)  # Wednesday
-        self.assertEqual(result.month, 5)  # May (next month from April)
+        self.assertEqual(result.month, expected_month)  # Next month from current
 
     def test_day_at_special_time(self):
         """Test 'next thursday at noon' - day + at + time."""

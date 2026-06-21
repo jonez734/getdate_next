@@ -1410,6 +1410,48 @@ def parse(tokens: list[Token]) -> Optional[datetime]:
     return parser.parse()
 
 
+def _parse_dual_timezone(buf: str):
+    """Parse dual timezone format: '2026-06-19 12:12:46 GMT (08:12:46 NYC)'.
+    
+    Returns:
+        tuple: (Optional[datetime], list of error messages)
+        - If times don't match up, returns error message
+        - If parsing fails, returns (None, [])
+    """
+    import re
+    from .timezone_data import get_timezone
+    
+    pattern = r"^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+([A-Za-z]{2,4})\s+\((\d{1,2}):(\d{2}):(\d{2})\s+([A-Za-z]{2,4})\)$"
+    match = re.match(pattern, buf)
+    if not match:
+        return (None, [])
+    
+    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    hour1, minute1, second1 = int(match.group(4)), int(match.group(5)), int(match.group(6))
+    tz1_abbr = match.group(7).upper()
+    hour2, minute2, second2 = int(match.group(8)), int(match.group(9)), int(match.group(10))
+    tz2_abbr = match.group(11).upper()
+    
+    tz1 = get_timezone(tz1_abbr)
+    tz2 = get_timezone(tz2_abbr)
+    
+    if tz1 is None:
+        return (None, [f"Unknown timezone: {tz1_abbr}"])
+    if tz2 is None:
+        return (None, [f"Unknown timezone: {tz2_abbr}"])
+    
+    dt1 = datetime(year, month, day, hour1, minute1, second1, tzinfo=tz1)
+    dt2 = datetime(year, month, day, hour2, minute2, second2, tzinfo=tz2)
+    
+    utc1 = dt1.astimezone(timezone.utc)
+    utc2 = dt2.astimezone(timezone.utc)
+    
+    if utc1 != utc2:
+        return (None, [f"Time mismatch: {tz1_abbr} {hour1:02d}:{minute1:02d}:{second1} ({utc1.strftime('%H:%M:%S UTC')}) != {tz2_abbr} {hour2:02d}:{minute2:02d}:{second2} ({utc2.strftime('%H:%M:%S UTC')})"])
+    
+    return (dt1, [])
+
+
 def getdate_with_lexer(buf: str):
     """Parse date expression using lexer-based parser with validation.
     
@@ -1424,6 +1466,12 @@ def getdate_with_lexer(buf: str):
     buf = buf.strip()
     if not buf:
         return (None, ["Input must be a non-empty string"])
+
+    dual_tz_result, dual_tz_errors = _parse_dual_timezone(buf)
+    if dual_tz_errors:
+        return (None, dual_tz_errors)
+    if dual_tz_result is not None:
+        return (dual_tz_result, [])
 
     tokens = tokenize(buf)
     parser = Parser(tokens)

@@ -38,6 +38,7 @@ TIMEZONE_ABBREV_OFFSET: Dict[str, int] = {
     "aedt": 11,
     "nzst": 12,
     "nzdt": 13,
+    "nyc": -4,
 }
 
 ABBREV_TO_ZONE: Dict[str, str] = {
@@ -58,6 +59,7 @@ ABBREV_TO_ZONE: Dict[str, str] = {
     "aedt": "Australia/Sydney",
     "nzst": "Pacific/Auckland",
     "nzdt": "Pacific/Auckland",
+    "nyc": "America/New_York",
 }
 
 
