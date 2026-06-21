@@ -3,7 +3,7 @@
         'name' => 'getdate-next/php',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'e65948239b35d0dad7400a45c1fb2c3ee366e731',
+        'reference' => '4eed73ac62b2ea281680addac4e849b8a82c4b11',
         'type' => 'library',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -22,7 +22,7 @@
         'getdate-next/php' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'e65948239b35d0dad7400a45c1fb2c3ee366e731',
+            'reference' => '4eed73ac62b2ea281680addac4e849b8a82c4b11',
             'type' => 'library',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

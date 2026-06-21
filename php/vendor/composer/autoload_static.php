@@ -18,6 +18,7 @@ class ComposerStaticInitb334b9cee833d6cb390a407c7e191655
         ),
         'G' =>
         array (
+            'GetdateNext\\Tests\\' => 18,
             'GetdateNext\\' => 12,
         ),
         'D' =>
@@ -31,6 +32,10 @@ class ComposerStaticInitb334b9cee833d6cb390a407c7e191655
         'PhpParser\\' =>
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
+        ),
+        'GetdateNext\\Tests\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/tests',
         ),
         'GetdateNext\\' =>
         array (

@@ -33,9 +33,6 @@ all:
 clean:
 	-rm *~
 
-sdist:
-	$(PYTHON) -m setup sdist --dist-dir /srv/repo/$(PROJECT)/
-
 version:
 	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/getdate_next/_version.py
 
