@@ -4,7 +4,7 @@ VERSION = $(shell date +%Y%m%d%H%M)
 
 PYTHON = python3
 
-.PHONY: build version
+.PHONY: build version deploy
 .PHONY: clean build rename-sdist sign release all
 
 build: version
@@ -49,3 +49,5 @@ tag:
 
 backup:
 	rsync --recursive --verbose --exclude=.venv . /srv/backups/minotaur/$(PROJECT)/
+
+deploy: build
