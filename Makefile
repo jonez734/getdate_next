@@ -50,4 +50,4 @@ tag:
 backup:
 	rsync --recursive --verbose --exclude=.venv . /srv/backups/minotaur/$(PROJECT)/
 
-deploy: build
+deploy:
