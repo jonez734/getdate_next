@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9,<3.13"
 license = "GPL-2.0-or-later"
 authors = [
-    { name = "zoidtechnologies.com", email = "getdate-next@projects.zoidtechnologies.com" },
+    { name = "bbsengine.org", email = "getdate-next@projects.zoidtechnologies.com" },
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
