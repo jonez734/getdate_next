@@ -7,7 +7,12 @@ PYTHON = python3
 .PHONY: build version deploy
 .PHONY: clean build rename-sdist sign release all
 
+# Make sure build/ exists with mode 0755 (no setgid) before invoking
+# `python -m build`. See bed/Makefile PREPARE_BUILD for the full rationale.
+PREPARE_BUILD = mkdir -p build && chmod g-s build
+
 build: version
+	$(PREPARE_BUILD)
 	VERSION=$(VERSION) $(PYTHON) -m build --outdir $(OUTDIR)
 
 rename-sdist:

@@ -170,6 +170,20 @@ ruff check src/
 ruff format src/
 ```
 
+### SELinux + setgid build trees
+
+On SELinux-enforcing hosts (Fedora, RHEL) inside a `NoNewPrivs`
+container, building from a setgid project tree (mode `0o2775`)
+will fail with `Errno 1: Operation not permitted` — setuptools
+`bdist_wheel.egg2dist` calls `shutil.copystat` on the freshly
+created `<dist-info>/` directory, but the source egg-info
+inherited the setgid bit so `os.chmod` of `0o2775` is EPERM
+without `CAP_FSETID`. The `Makefile`'s `build` target runs a
+`PREPARE_BUILD` helper (`mkdir -p build && chmod g-s build`)
+before `python -m build` to ensure `build/` has mode `0o755` so
+no nested dir inherits setgid. See `bed/Makefile` `PREPARE_BUILD`
+and `bed/CHANGELOG.md` for the full diagnosis.
+
 ## Requirements
 
 - Python 3.9 - 3.12
