@@ -27,9 +27,29 @@ clean: clean-egg-info
 version:
 	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/$(PROJECT)/_version.py
 
-# Make sure build/ exists with mode 0755 (no setgid) before invoking
-# `python -m build`. See bed/Makefile PREPARE_BUILD for the full rationale.
-PREPARE_BUILD = mkdir -p build && chmod g-s build
+# Make sure build/ exists with mode 1775 (sticky + rwxrwxr-x) before
+# invoking `python -m build`. Mode 1775 is intentional:
+#   - sticky (t): only the owner of a file inside may delete/rename it,
+#     so concurrent builds under a shared group can't stomp each other.
+#   - setgid (s) is intentionally NOT set: setuptools' shutil.copystat
+#     mirrors build/'s mode onto the freshly-created dist-info dir, and
+#     a setgid'd dist-info EPERMs the subsequent bdist_wheel step in
+#     SELinux-enforcing + NoNewPrivs containers (we lack CAP_FSETID).
+#   - group write (g+w): any user in the build group can rebuild
+#     without needing to chown.
+# `chmod 1775` is used (rather than just `chmod g-s`) because it's
+# idempotent and pins the mode even when the source tree's umask would
+# otherwise drop the sticky bit on mkdir.
+#
+# If build/ exists but is owned by a different user (e.g. left over
+# from a prior build run as a different uid), rename it out of the way
+# first. Without this, the subsequent chmod fails with EPERM and the
+# build aborts.
+PREPARE_BUILD = \
+	if [ -d build ] && [ ! -O build ]; then \
+		mv build build.stale.$$ 2>/dev/null || true; \
+	fi; \
+	mkdir -p build && chmod 1775 build
 
 ensure-repo:
 	@stat -c '%G' /srv/repo 2>/dev/null | grep -qx repo || sudo chgrp repo /srv/repo
