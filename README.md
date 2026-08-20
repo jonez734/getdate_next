@@ -178,11 +178,27 @@ will fail with `Errno 1: Operation not permitted` — setuptools
 `bdist_wheel.egg2dist` calls `shutil.copystat` on the freshly
 created `<dist-info>/` directory, but the source egg-info
 inherited the setgid bit so `os.chmod` of `0o2775` is EPERM
-without `CAP_FSETID`. The `Makefile`'s `build` target runs a
-`PREPARE_BUILD` helper (`mkdir -p build && chmod g-s build`)
-before `python -m build` to ensure `build/` has mode `0o755` so
-no nested dir inherits setgid. See `bed/Makefile` `PREPARE_BUILD`
-and `bed/CHANGELOG.md` for the full diagnosis.
+without `CAP_FSETID`. The `Makefile`'s `build` and `deploy-venv`
+targets run a `PREPARE_BUILD` helper before `python -m build`
+to ensure `build/` has mode `1775` (sticky + rwxrwxr-x, no
+setgid) so no nested dir inherits setgid:
+
+```make
+PREPARE_BUILD = \
+	if [ -d build ] && [ ! -O build ]; then \
+		mv build build.stale.$$ 2>/dev/null || true; \
+	fi; \
+	mkdir -p build && chmod 1775 build
+```
+
+The foreign-owned rename (`[ ! -O build ]` -> `mv build
+build.stale.$$`) handles the case where a prior build ran as a
+different uid and the leftover `build/` is owned by that uid —
+we can't `chmod` it, so we move it out of the way first. Mode
+`1775` (not just `chmod g-s`) is used because `chmod g-s` is
+umask-dependent and pins the mode idempotently. See
+`bed/Makefile` `PREPARE_BUILD` (lines 143-166) and
+`bed/CHANGELOG.md` for the full diagnosis.
 
 ## Requirements
 
