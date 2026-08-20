@@ -3,15 +3,44 @@ OUTDIR = /srv/repo/$(PROJECT)/
 VERSION = $(shell date +%Y%m%d%H%M)
 
 PYTHON = python3
+WHEEL_DIR = /tmp/$(PROJECT)-$$
 
-.PHONY: build version deploy
-.PHONY: clean build rename-sdist sign release all
+.PHONY: all help clean clean-egg-info ensure-repo ensure-build-dir build version rename-sdist sign release deploy-venv deploy push tag backup
+
+all: help
+
+# Wipe in-tree *.egg-info/ dirs that a prior `pip install -e .` may have
+# left behind. Such egg-infos bake absolute paths into SOURCES.txt and
+# poison any later `python -m build`, which trips the setuptools
+# "no absolute paths" guard with messages like:
+#   "setup script specifies an absolute path:
+#    /home/opencode/data/work/getdate_next/src/getdate_next/__init__.py"
+clean-egg-info:
+	-rm -rf *.egg-info src/*.egg-info
+
+clean: clean-egg-info
+	-rm -rf build build.old
+	-find . -type d -name __pycache__ -exec rm -rf {} +
+	-find . -type d -name .pytest_cache -exec rm -rf {} +
+	-find . -type d -name .ruff_cache -exec rm -rf {} +
+
+version:
+	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/$(PROJECT)/_version.py
 
 # Make sure build/ exists with mode 0755 (no setgid) before invoking
 # `python -m build`. See bed/Makefile PREPARE_BUILD for the full rationale.
 PREPARE_BUILD = mkdir -p build && chmod g-s build
 
-build: version
+ensure-repo:
+	@stat -c '%G' /srv/repo 2>/dev/null | grep -qx repo || sudo chgrp repo /srv/repo
+	@stat -c '%a' /srv/repo 2>/dev/null | grep -q '^2775$$' || sudo chmod 2775 /srv/repo
+
+ensure-build-dir: ensure-repo
+	@mkdir -p /srv/repo/$(PROJECT)/
+	@stat -c '%G' /srv/repo/$(PROJECT)/ 2>/dev/null | grep -qx repo || sudo chgrp repo /srv/repo/$(PROJECT)/
+	@stat -c '%a' /srv/repo/$(PROJECT)/ 2>/dev/null | grep -q '^2775$$' || sudo chmod 2775 /srv/repo/$(PROJECT)/
+
+build: version clean-egg-info ensure-build-dir
 	$(PREPARE_BUILD)
 	VERSION=$(VERSION) $(PYTHON) -m build --outdir $(OUTDIR)
 
@@ -31,15 +60,46 @@ sign:
 		fi \
 	done
 
-release: clean build rename-sdist sign
+release: clean version build rename-sdist sign
 
-all:
+# Non-sudo: build a getdate_next wheel and pip install it into the
+# active virtualenv (`$VIRTUAL_ENV`). Intended for developer/CI use
+# when testing local source changes before publishing to PyPI.
+# deploytool no longer orchestrates this target — `bbsengine6/py/
+# pyproject.toml` declares `getdate-next` as a runtime dep and pip
+# resolves it via PyPI when bbsengine6 installs. To use local source
+# instead of PyPI, run this target manually before deploying anything
+# that pulls in bbsengine6.
+deploy-venv: clean-egg-info
+	@command -v $(VIRTUAL_ENV)/bin/pip >/dev/null 2>&1 || { \
+		echo "Error: deploy-venv requires an active virtualenv (set VIRTUAL_ENV)"; \
+		exit 1; \
+	}
+	@mkdir -p $(WHEEL_DIR)
+	@rm -f $(WHEEL_DIR)/*.whl
+	$(MAKE) version
+	$(PREPARE_BUILD)
+	$(PYTHON) -m build --wheel --outdir $(WHEEL_DIR) .
+	$(VIRTUAL_ENV)/bin/pip install $(WHEEL_DIR)/*.whl
+	-rm -rf $(WHEEL_DIR)
+	@echo "Installed $(PROJECT) into $(VIRTUAL_ENV)"
 
-clean:
-	-rm *~
-
-version:
-	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/getdate_next/_version.py
+help:
+	@echo "getdate_next - natural language date expression parser"
+	@echo ""
+	@echo "Targets:"
+	@echo "  build           Build sdist+wheel into $(OUTDIR)"
+	@echo "  rename-sdist    Rename built sdist to include -src suffix"
+	@echo "  sign            GPG-detach-sign every artifact in $(OUTDIR)"
+	@echo "  release         clean + version + build + rename-sdist + sign"
+	@echo "  deploy-venv     Build wheel and pip install into \$$VIRTUAL_ENV"
+	@echo "  clean           Remove build artifacts"
+	@echo "  clean-egg-info  Remove in-tree *.egg-info/ dirs (defensive)"
+	@echo "  version         Stamp src/getdate_next/_version.py with date"
+	@echo "  tag             Create git tag v$(VERSION) if absent"
+	@echo "  push            Push v$(VERSION) to github"
+	@echo "  backup          rsync the tree to /srv/backups/minotaur/$(PROJECT)/"
+	@echo "  deploy          alias for deploy-venv"
 
 push: tag
 	git push -u github v$(VERSION)
@@ -55,4 +115,4 @@ tag:
 backup:
 	rsync --recursive --verbose --exclude=.venv . /srv/backups/minotaur/$(PROJECT)/
 
-deploy:
+deploy: deploy-venv
