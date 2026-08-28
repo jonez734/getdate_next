@@ -5,6 +5,31 @@ VERSION = $(shell date +%Y%m%d%H%M)
 PYTHON = python3
 WHEEL_DIR = /tmp/$(PROJECT)-$$
 
+# TODO(canonical): bring getdate_next up to the zoidoffice standard
+# AND make it work with deploytool. Right now this project is on
+# `bbsengine6/py/pyproject.toml` as a runtime dep that pip resolves
+# from PyPI, and deploytool no longer orchestrates it (see the
+# comment at the deploy-venv target below). To get back into the
+# deploytool chain:
+#   1. Pin VERSION across sub-make invocations (VERSION ?= ...).
+#      zoidoffice/Makefile commit e93da33 has the rationale and pattern.
+#   2. Build into a per-project $(DISTDIR) (./dist) instead of
+#      $(WHEEL_DIR) (/tmp/<project>-$$), so the wheel is reproducible
+#      across deploys and survives /tmp cleanup.
+#   3. Add a `repo` target that rsyncs ./dist -> /srv/repo/getdate_next/.
+#   4. Add a `deploy-tui` target (currently `deploy-venv`) that uses
+#      $(DEPLOY_EDITABLE) and the canonical ifeq/else shape from
+#      zoidoffice/src/Makefile. deploytool's TARGETS dict already has
+#      `"getdate_next": ["tui"]` (deploytool/lib.py:132) and the alias
+#      (`("getdate_next", "tui"): "venv"` at line 140), so flipping the
+#      target name and adding DEPLOY_EDITABLE wiring is all that's
+#      needed for deploytool to drive this Makefile.
+#   5. Add the verify-install check (TODO at the deploy-venv install
+#      line below) — currently silent no-ops are not caught.
+#   6. Update bbsengine6/py/pyproject.toml to drop the getdate-next
+#      runtime dep (or keep it as a PyPI fallback) once this Makefile
+#      is deploytool-driven.
+
 .PHONY: all help clean clean-egg-info ensure-repo ensure-build-dir build version rename-sdist sign release deploy-venv deploy push tag backup
 
 all: help
@@ -101,6 +126,10 @@ deploy-venv: clean-egg-info
 	$(PREPARE_BUILD)
 	$(PYTHON) -m build --wheel --outdir $(WHEEL_DIR) .
 	$(VIRTUAL_ENV)/bin/pip install $(WHEEL_DIR)/*.whl
+	# TODO(verify-install): after this `pip install` of $(WHEEL_DIR)/*.whl,
+	# compare the wheel's METADATA Version against `pip show getdate-next`
+	# to catch the silent-no-op case. See zoidoffice/src/Makefile's
+	# VERIFY_INSTALL variable for the reference implementation.
 	-rm -rf $(WHEEL_DIR)
 	@echo "Installed $(PROJECT) into $(VIRTUAL_ENV)"
 
