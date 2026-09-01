@@ -5,6 +5,16 @@ VERSION = $(shell date +%Y%m%d%H%M)
 PYTHON = python3
 WHEEL_DIR = /tmp/$(PROJECT)-$$
 
+# DEPLOY_UPGRADE is set by `deploytool --upgrade` (default true) and
+# unset by `--no-upgrade`. When "1", the `pip install` in this
+# Makefile's deploy-venv target passes `--upgrade` so the install
+# replaces any prior version of the same distribution and pulls the
+# newest transitive deps from PyPI. When empty, the prior no-op-if-
+# version-matches behavior holds. Same env-var contract as the other
+# per-project Makefiles.
+DEPLOY_UPGRADE ?=
+PIP_UPGRADE_FLAG := $(if $(filter 1,$(DEPLOY_UPGRADE)),--upgrade,)
+
 # TODO(canonical): bring getdate_next up to the zoidoffice standard
 # AND make it work with deploytool. Right now this project is on
 # `bbsengine6/py/pyproject.toml` as a runtime dep that pip resolves
@@ -125,7 +135,7 @@ deploy-venv: clean-egg-info
 	$(MAKE) version
 	$(PREPARE_BUILD)
 	$(PYTHON) -m build --wheel --outdir $(WHEEL_DIR) .
-	$(VIRTUAL_ENV)/bin/pip install $(WHEEL_DIR)/*.whl
+	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) $(WHEEL_DIR)/*.whl
 	# TODO(verify-install): after this `pip install` of $(WHEEL_DIR)/*.whl,
 	# compare the wheel's METADATA Version against `pip show getdate-next`
 	# to catch the silent-no-op case. See zoidoffice/src/Makefile's
