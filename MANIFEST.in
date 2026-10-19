@@ -1,0 +1,12 @@
+include LICENSE README.md pyproject.toml
+include tests/test_getdate.py
+prune src/getdate_next.egg-info
+exclude Makefile SPEC.md TODO.md demo_moneyday.py
+global-exclude __pycache__ *.py[cod] *~
+prune .github
+prune build
+prune dist
+prune perl
+prune php
+prune .pytest_cache
+prune .ruff_cache
