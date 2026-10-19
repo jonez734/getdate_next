@@ -15,13 +15,21 @@
 
 ## Phase 0 — Repo hygiene (single PR, no network)
 
-- [ ] Add `LICENSE` (full GPL-2.0-or-later text) at repo root
-- [ ] Append `[project.urls]` block to `pyproject.toml` with `Homepage`, `Source`, `Issues` pointing at `https://github.com/jonez734/getdate_next`
-- [ ] Add `MANIFEST.in` with explicit allowlist (`include LICENSE README.md pyproject.toml`, `include tests/test_getdate.py`, `prune Makefile SPEC.md demo_moneyday.py .github build dist .pytest_cache .ruff_cache __pycache__`)
-- [ ] Remove `sign` target from `Makefile`
-- [ ] Remove `sign` from `release` dependency chain in `Makefile` (`release: clean version build rename-sdist`)
-- [ ] Verify locally: `make build`, then `unzip -l dist/*.whl` and `tar tzf dist/*.tar.gz` to confirm only the allowed files are included
-- [ ] Commit on branch `prep-pypi` and push (do **not** tag)
+- [x] Add `LICENSE` (full GPL-2.0-or-later text) at repo root (`23e5134`)
+- [x] Append `[project.urls]` block to `pyproject.toml` (`23e5134`)
+- [x] Add `MANIFEST.in` with explicit allowlist (`23e5134`)
+- [x] Remove `sign` target and its use in `release` from `Makefile`
+- [x] Verify locally: `python -m build` + `twine check` pass; sdist contains only the allowed files plus setuptools-generated `setup.cfg` and egg-info
+- [ ] Commit on branch `prep-pypi` and push (do **not** tag). Committed locally; not pushed.
+
+## Deployment (deploytool)
+
+- deploytool orchestrates this project: `deploy getdate_next.tui` runs `deploy-tui`.
+- `GETDATE_SOURCE` picks the install source: `local` (default, build from this checkout), `pypi`, or any pip spec or path.
+- `bbsengine6/py/pyproject.toml` keeps `getdate-next` as a runtime dependency. This is deliberate; it is not removed.
+- Publish paths: `make testpypi` and `make pypi` (both need `PYPI_CONFIRM=1` and `TWINE_USERNAME=__token__` / `TWINE_PASSWORD` in the environment). Run `testpypi` before `pypi`.
+- Blocking before the first real `pypi` upload: confirm `getdate-next` is free on PyPI.
+- The GitHub Actions Trusted Publishing route below is the later canonical option; the local upload targets are interim.
 
 ## Phase 1 — PyPI accounts & pending publishers
 

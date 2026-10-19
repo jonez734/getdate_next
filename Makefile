@@ -1,60 +1,55 @@
 PROJECT = getdate_next
-OUTDIR = /srv/repo/$(PROJECT)/
-VERSION = $(shell date +%Y%m%d%H%M)
+# Pinned so sub-make invocations (deploy-tui -> build) share one version.
+VERSION ?= $(shell date +%Y%m%d%H%M)
+# Artifact glob for the version being built. Publish targets upload only
+# these files so stale artifacts left in $(OUTDIR) are never re-sent.
+ARTIFACTS = $(OUTDIR)$(PROJECT)-0.1.0.dev$(VERSION)*
 
-PYTHON = python3
-WHEEL_DIR = /tmp/$(PROJECT)-$$
+# All output paths are overridable. Nothing here hard-codes a host path.
+# OUTDIR: local build output (sdist + wheel). No sudo needed.
+OUTDIR ?= $(CURDIR)/dist/
+# REPO_DEST: publish target for `repo` (rsync). Empty = `repo` refuses to run.
+REPO_DEST ?=
+
+PYTHON ?= python3
+PIP ?= $(PYTHON) -m pip
 
 # DEPLOY_UPGRADE is set by `deploytool --upgrade` (default true) and
-# unset by `--no-upgrade`. When "1", the `pip install` in this
-# Makefile's deploy-venv target passes `--upgrade` so the install
-# replaces any prior version of the same distribution and pulls the
-# newest transitive deps from PyPI. When empty, the prior no-op-if-
-# version-matches behavior holds. Same env-var contract as the other
-# per-project Makefiles.
+# unset by `--no-upgrade`. When "1", pip installs pass `--upgrade`.
 DEPLOY_UPGRADE ?=
 PIP_UPGRADE_FLAG := $(if $(filter 1,$(DEPLOY_UPGRADE)),--upgrade,)
 
-# TODO(canonical): bring getdate_next up to the zoidoffice standard
-# AND make it work with deploytool. Right now this project is on
-# `bbsengine6/py/pyproject.toml` as a runtime dep that pip resolves
-# from PyPI, and deploytool no longer orchestrates it (see the
-# comment at the deploy-venv target below). To get back into the
-# deploytool chain:
-#   1. Pin VERSION across sub-make invocations (VERSION ?= ...).
-#      zoidoffice/Makefile commit e93da33 has the rationale and pattern.
-#   2. Build into a per-project $(DISTDIR) (./dist) instead of
-#      $(WHEEL_DIR) (/tmp/<project>-$$), so the wheel is reproducible
-#      across deploys and survives /tmp cleanup.
-#   3. Add a `repo` target that rsyncs ./dist -> /srv/repo/getdate_next/.
-#   4. Add a `deploy-tui` target (currently `deploy-venv`) that uses
-#      $(DEPLOY_EDITABLE) and the canonical ifeq/else shape from
-#      zoidoffice/src/Makefile. deploytool's TARGETS dict already has
-#      `"getdate_next": ["tui"]` (deploytool/lib.py:132) and the alias
-#      (`("getdate_next", "tui"): "venv"` at line 140), so flipping the
-#      target name and adding DEPLOY_EDITABLE wiring is all that's
-#      needed for deploytool to drive this Makefile.
-#   5. Add the verify-install check (TODO at the deploy-venv install
-#      line below) — currently silent no-ops are not caught.
-#   6. Update bbsengine6/py/pyproject.toml to drop the getdate-next
-#      runtime dep (or keep it as a PyPI fallback) once this Makefile
-#      is deploytool-driven.
+# DEPLOY_EDITABLE is set by `deploytool --editable`. When "1", deploy-tui
+# installs editable from this checkout instead of the built wheel.
+DEPLOY_EDITABLE ?=
 
-.PHONY: all help clean clean-egg-info ensure-repo ensure-build-dir build version rename-sdist sign release deploy-venv deploy push tag backup
+# GETDATE_SOURCE selects what `deploy-tui` installs into $VIRTUAL_ENV:
+#   local   build a wheel from this checkout and install it (default)
+#   pypi    pip install getdate-next from PyPI
+#   <other> passed to pip verbatim as a spec or path (fork, wheel, URL)
+GETDATE_SOURCE ?= local
+
+# Upload targets refuse to run unless PYPI_CONFIRM=1 is set.
+PYPI_CONFIRM ?=
+
+# Package index used by `testpypi` and `pypi`. Credentials come from the
+# environment only: TWINE_USERNAME=__token__ and TWINE_PASSWORD=<token>.
+TESTPYPI_URL = https://test.pypi.org/legacy/
+
+.PHONY: all help clean clean-egg-info version build stage check rename-sdist \
+	ensure-repo repo deploy-tui deploy-venv deploy testpypi pypi \
+	verify-tokens tag push backup
 
 all: help
 
 # Wipe in-tree *.egg-info/ dirs that a prior `pip install -e .` may have
 # left behind. Such egg-infos bake absolute paths into SOURCES.txt and
-# poison any later `python -m build`, which trips the setuptools
-# "no absolute paths" guard with messages like:
-#   "setup script specifies an absolute path:
-#    /home/opencode/data/work/getdate_next/src/getdate_next/__init__.py"
+# poison any later `python -m build`.
 clean-egg-info:
 	-rm -rf *.egg-info src/*.egg-info
 
 clean: clean-egg-info
-	-rm -rf build build.old
+	-rm -rf build build.old dist
 	-find . -type d -name __pycache__ -exec rm -rf {} +
 	-find . -type d -name .pytest_cache -exec rm -rf {} +
 	-find . -type d -name .ruff_cache -exec rm -rf {} +
@@ -62,42 +57,20 @@ clean: clean-egg-info
 version:
 	@echo '__version__ = "0.1.0.dev$(VERSION)"' > src/$(PROJECT)/_version.py
 
-# Make sure build/ exists with mode 1775 (sticky + rwxrwxr-x) before
-# invoking `python -m build`. Mode 1775 is intentional:
-#   - sticky (t): only the owner of a file inside may delete/rename it,
-#     so concurrent builds under a shared group can't stomp each other.
-#   - setgid (s) is intentionally NOT set: setuptools' shutil.copystat
-#     mirrors build/'s mode onto the freshly-created dist-info dir, and
-#     a setgid'd dist-info EPERMs the subsequent bdist_wheel step in
-#     SELinux-enforcing + NoNewPrivs containers (we lack CAP_FSETID).
-#   - group write (g+w): any user in the build group can rebuild
-#     without needing to chown.
-# `chmod 1775` is used (rather than just `chmod g-s`) because it's
-# idempotent and pins the mode even when the source tree's umask would
-# otherwise drop the sticky bit on mkdir.
-#
-# If build/ exists but is owned by a different user (e.g. left over
-# from a prior build run as a different uid), rename it out of the way
-# first. Without this, the subsequent chmod fails with EPERM and the
-# build aborts.
+# Make sure build/ exists with mode 1775 before invoking `python -m build`.
+# If build/ is foreign-owned, rename it out of the way first. Without the
+# rename, the chmod fails with EPERM and the build aborts.
 PREPARE_BUILD = \
 	if [ -d build ] && [ ! -O build ]; then \
-		mv build build.stale.$$ 2>/dev/null || true; \
+		mv build build.stale.$$$$ 2>/dev/null || true; \
 	fi; \
 	mkdir -p build && chmod 1775 build
 
-ensure-repo:
-	@stat -c '%G' /srv/repo 2>/dev/null | grep -qx repo || sudo chgrp repo /srv/repo
-	@stat -c '%a' /srv/repo 2>/dev/null | grep -q '^2775$$' || sudo chmod 2775 /srv/repo
-
-ensure-build-dir: ensure-repo
-	@mkdir -p /srv/repo/$(PROJECT)/
-	@stat -c '%G' /srv/repo/$(PROJECT)/ 2>/dev/null | grep -qx repo || sudo chgrp repo /srv/repo/$(PROJECT)/
-	@stat -c '%a' /srv/repo/$(PROJECT)/ 2>/dev/null | grep -q '^2775$$' || sudo chmod 2775 /srv/repo/$(PROJECT)/
-
-build: version clean-egg-info ensure-build-dir
+# Build sdist + wheel into $(OUTDIR). No sudo, no publish.
+build: version clean-egg-info
 	$(PREPARE_BUILD)
-	VERSION=$(VERSION) $(PYTHON) -m build --outdir $(OUTDIR)
+	@mkdir -p $(OUTDIR)
+	$(PYTHON) -m build --outdir $(OUTDIR)
 
 rename-sdist:
 	@for f in $(OUTDIR)/*.tar.gz; do \
@@ -107,61 +80,113 @@ rename-sdist:
 		fi \
 	done
 
-sign:
-	@for f in $(OUTDIR)/*; do \
-		if [ -f "$$f" ] && [ ! -f "$$f.asc" ] && [ "$${f##*.}" != "asc" ]; then \
-			gpg --armor --detach-sign "$$f"; \
-			echo "Signed $$f"; \
-		fi \
-	done
+# Stage: build artifacts only. Used by every publish path.
+stage: build
 
-release: clean version build rename-sdist sign
+# Validate the artifacts in $(OUTDIR) with twine before any upload.
+check: stage
+	$(PYTHON) -m twine check $(OUTDIR)/*
 
-# Non-sudo: build a getdate_next wheel and pip install it into the
-# active virtualenv (`$VIRTUAL_ENV`). Intended for developer/CI use
-# when testing local source changes before publishing to PyPI.
-# deploytool no longer orchestrates this target — `bbsengine6/py/
-# pyproject.toml` declares `getdate-next` as a runtime dep and pip
-# resolves it via PyPI when bbsengine6 installs. To use local source
-# instead of PyPI, run this target manually before deploying anything
-# that pulls in bbsengine6.
-deploy-venv: clean-egg-info
+release: clean version build check
+
+# Publish targets always start from a clean release build of this version.
+publish-ready: release
+
+# Local install into the active venv. The default GETDATE_SOURCE=local
+# builds a wheel from this checkout; `pypi` and other values pip-install
+# from the named source.
+deploy-tui:
+ifeq ($(DEPLOY_EDITABLE),1)
 	@command -v $(VIRTUAL_ENV)/bin/pip >/dev/null 2>&1 || { \
-		echo "Error: deploy-venv requires an active virtualenv (set VIRTUAL_ENV)"; \
-		exit 1; \
-	}
-	@mkdir -p $(WHEEL_DIR)
-	@rm -f $(WHEEL_DIR)/*.whl
-	$(MAKE) version
-	$(PREPARE_BUILD)
-	$(PYTHON) -m build --wheel --outdir $(WHEEL_DIR) .
-	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) $(WHEEL_DIR)/*.whl
-	# TODO(verify-install): after this `pip install` of $(WHEEL_DIR)/*.whl,
-	# compare the wheel's METADATA Version against `pip show getdate-next`
-	# to catch the silent-no-op case. See zoidoffice/src/Makefile's
-	# VERIFY_INSTALL variable for the reference implementation.
-	-rm -rf $(WHEEL_DIR)
+		echo "Error: deploy-tui requires an active virtualenv (set VIRTUAL_ENV)"; exit 1; }
+	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) --no-cache-dir -e .
+	-rm -rf src/*.egg-info
+else ifeq ($(GETDATE_SOURCE),local)
+	@command -v $(VIRTUAL_ENV)/bin/pip >/dev/null 2>&1 || { \
+		echo "Error: deploy-tui requires an active virtualenv (set VIRTUAL_ENV)"; exit 1; }
+	$(MAKE) build VERSION=$(VERSION)
+	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) --no-deps \
+		$(ARTIFACTS).whl
+	@$(VERIFY_INSTALL)
+else ifeq ($(GETDATE_SOURCE),pypi)
+	@command -v $(VIRTUAL_ENV)/bin/pip >/dev/null 2>&1 || { \
+		echo "Error: deploy-tui requires an active virtualenv (set VIRTUAL_ENV)"; exit 1; }
+	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) getdate-next
+else
+	@command -v $(VIRTUAL_ENV)/bin/pip >/dev/null 2>&1 || { \
+		echo "Error: deploy-tui requires an active virtualenv (set VIRTUAL_ENV)"; exit 1; }
+	$(VIRTUAL_ENV)/bin/pip install $(PIP_UPGRADE_FLAG) "$(GETDATE_SOURCE)"
+endif
 	@echo "Installed $(PROJECT) into $(VIRTUAL_ENV)"
+
+# Verify that the wheel just installed is the one `pip show` reports.
+# Catches silent no-ops where pip exits 0 without replacing the install.
+VERIFY_INSTALL = \
+	WHEEL=$$(ls $(ARTIFACTS).whl | head -1); \
+	EXPECTED_FROM_FILENAME=$$(basename "$$WHEEL" | sed -E 's/^$(PROJECT)-(.+)-py3-none-any\.whl$$/\1/'); \
+	EXPECTED_FROM_METADATA=$$(unzip -p "$$WHEEL" '*/METADATA' 2>/dev/null | awk -F': ' '/^Version: / {print $$2; exit}'); \
+	SHOW_OUTPUT=$$($(VIRTUAL_ENV)/bin/pip show $(PROJECT) 2>&1); \
+	INSTALLED=$$(echo "$$SHOW_OUTPUT" | awk '/^Version: / {print $$2; exit}'); \
+	echo "=== verify-install ($(PROJECT)) ==="; \
+	echo "  wheel filename Version: $$EXPECTED_FROM_FILENAME"; \
+	echo "  wheel METADATA Version: $$EXPECTED_FROM_METADATA"; \
+	echo "  pip show Version:       $$INSTALLED"; \
+	if [ "$$INSTALLED" != "$$EXPECTED_FROM_FILENAME" ] \
+		|| [ "$$INSTALLED" != "$$EXPECTED_FROM_METADATA" ]; then \
+		echo "verify-install FAILED: $$WHEEL was installed but pip show does not agree" >&2; \
+		exit 1; \
+	fi; \
+	echo "verify-install OK: pip show reports $$INSTALLED"
+
+# Back-compat alias for the pre-deploytool name.
+deploy-venv: deploy-tui
+
+deploy: deploy-tui
+
+# Publish to /srv/repo/<project>/ by rsync. Only target that touches
+# $(REPO_DEST). Refuses to run unless REPO_DEST is set.
+repo: require-repo-dest stage
+	rsync -av --delete $(OUTDIR) $(REPO_DEST)
+
+# Refuse before any build work when REPO_DEST is unset.
+require-repo-dest:
+	@test -n "$(REPO_DEST)" || { echo "repo: REPO_DEST is not set; nothing published" >&2; exit 1; }
+
+# Credential and confirmation guard for index uploads.
+verify-tokens:
+	@test -n "$$TWINE_PASSWORD" || { \
+		echo "Error: TWINE_PASSWORD is not set. Set TWINE_USERNAME=__token__ and TWINE_PASSWORD=<token>." >&2; exit 1; }
+	@test "$${TWINE_USERNAME:-}" = "__token__" || { \
+		echo "Error: TWINE_USERNAME must be __token__ for token auth." >&2; exit 1; }
+
+# Upload to TestPyPI. Run this before `pypi`.
+testpypi: publish-ready verify-tokens
+	@test "$(PYPI_CONFIRM)" = "1" || { echo "testpypi: set PYPI_CONFIRM=1 to upload" >&2; exit 1; }
+	$(PYTHON) -m twine upload --repository-url $(TESTPYPI_URL) $(ARTIFACTS)*
+
+# Upload to PyPI. Requires PYPI_CONFIRM=1.
+pypi: publish-ready verify-tokens
+	@test "$(PYPI_CONFIRM)" = "1" || { echo "pypi: set PYPI_CONFIRM=1 to upload" >&2; exit 1; }
+	$(PYTHON) -m twine upload $(ARTIFACTS)*
 
 help:
 	@echo "getdate_next - natural language date expression parser"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build           Build sdist+wheel into $(OUTDIR)"
-	@echo "  rename-sdist    Rename built sdist to include -src suffix"
-	@echo "  sign            GPG-detach-sign every artifact in $(OUTDIR)"
-	@echo "  release         clean + version + build + rename-sdist + sign"
-	@echo "  deploy-venv     Build wheel and pip install into \$$VIRTUAL_ENV"
-	@echo "  clean           Remove build artifacts"
-	@echo "  clean-egg-info  Remove in-tree *.egg-info/ dirs (defensive)"
-	@echo "  version         Stamp src/getdate_next/_version.py with date"
-	@echo "  tag             Create git tag v$(VERSION) if absent"
-	@echo "  push            Push v$(VERSION) to github"
-	@echo "  backup          rsync the tree to /srv/backups/minotaur/$(PROJECT)/"
-	@echo "  deploy          alias for deploy-venv"
-
-push: tag
-	git push -u github v$(VERSION)
+	@echo "  build        Build sdist + wheel into \$$(OUTDIR) (default: ./dist/)"
+	@echo "  stage        Same as build; artifacts only, no install or publish"
+	@echo "  check        twine check on the built artifacts"
+	@echo "  deploy-tui   Install into \$$VIRTUAL_ENV (GETDATE_SOURCE=local|pypi|<spec>)"
+	@echo "  deploy       alias for deploy-tui"
+	@echo "  repo         rsync artifacts to \$$(REPO_DEST); fails if unset"
+	@echo "  testpypi     Upload to TestPyPI (PYPI_CONFIRM=1, TWINE_* env)"
+	@echo "  pypi         Upload to PyPI (PYPI_CONFIRM=1, TWINE_* env); run testpypi first"
+	@echo "  release      clean + version + build + check"
+	@echo "  clean        Remove build artifacts"
+	@echo "  version      Stamp src/getdate_next/_version.py with date"
+	@echo "  tag          Create git tag v$(VERSION) if absent"
+	@echo "  push         Push v$(VERSION) to origin"
+	@echo "  backup       rsync the tree to \$$(BACKUP_DEST); fails if unset"
 
 tag:
 	@if git rev-parse v$(VERSION) >/dev/null 2>&1; then \
@@ -171,7 +196,11 @@ tag:
 		echo "Tag v$(VERSION) created locally."; \
 	fi
 
-backup:
-	rsync --recursive --verbose --exclude=.venv . /srv/backups/minotaur/$(PROJECT)/
+push: tag
+	git push -u origin v$(VERSION)
 
-deploy: deploy-venv
+# Backup destination is operator-supplied; no host path is hard-coded.
+BACKUP_DEST ?=
+backup:
+	@test -n "$(BACKUP_DEST)" || { echo "backup: BACKUP_DEST is not set" >&2; exit 1; }
+	rsync --recursive --verbose --exclude=.venv . $(BACKUP_DEST)/$(PROJECT)/
